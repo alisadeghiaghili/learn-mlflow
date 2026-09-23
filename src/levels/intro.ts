@@ -1,5 +1,5 @@
 /**
- * Intro sequence — Tracking fundamentals.
+ * Intro sequence — Tracking fundamentals with deeper teaching notes.
  */
 
 import type { Level } from '../engine/types';
@@ -24,31 +24,46 @@ export const introLevels: Level[] = [
     hint: 'mlflow experiments create -n fraud-detection',
     solutionCommand: 'mlflow experiments create -n fraud-detection',
     startWorld: emptyStart(),
-    goal: all(hasExperiment('fraud-detection'), activeExperimentIs('fraud-detection')),
+    goal: all(
+      hasExperiment('fraud-detection'),
+      activeExperimentIs('fraud-detection'),
+    ),
+    learning: [
+      'MLflow Tracking groups every run under an experiment',
+      'Creating an experiment also makes it the active target for new runs',
+    ],
+    goalSteps: [
+      'Create experiment named exactly fraud-detection',
+      'Leave it active (the * marker in Experiments)',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Experiments',
+          '## Why experiments exist',
           '',
-          'An **experiment** is the top-level container for ML work: runs live inside it, and you compare runs within the same experiment.',
+          'Without a grouping mechanism, training logs become a pile of numbers with no context. An **experiment** is MLflow’s unit of organization: one problem, one product, one research question.',
           '',
-          'In a real tracking server every project (or problem) usually gets its own experiment — `churn`, `pricing`, `fraud-detection`.',
+          'Think of it as a *project folder* in the tracking server. Every attempt at solving that problem becomes a **run** inside the folder. When you later ask “which model should we ship?”, you compare runs *inside the same experiment* — not across unrelated projects.',
           '',
-          'Creating one is enough for this level. Use:',
+          'Create one with:',
           '',
           '```',
-          'mlflow experiments create -n <name>',
+          'mlflow experiments create -n fraud-detection',
           '```',
+          '',
+          'The command also **activates** the experiment. That matters: the next run you start will land here automatically. In real projects you will often `mlflow experiments set` to switch between `fraud`, `churn`, `pricing` without restarting the CLI.',
         ],
       },
       {
         type: 'demo',
         before: [
-          'Hit the button to create an experiment named `demo` and watch it appear in the viz panel.',
+          'Watch the right panel. Creating `demo` will add a row under Experiments and mark it active with `*`.',
         ],
         after: [
-          'There — the experiment is listed and marked active (`*`). New runs will land here.',
+          'The experiment is listed and active. New runs will attach to it until you switch.',
+          '',
+          'Naming tip: use the business problem (`fraud-detection`), not the model (`xgboost-v2`). Models change; the problem stays.',
         ],
         command: 'mlflow experiments create -n demo',
       },
@@ -69,27 +84,34 @@ export const introLevels: Level[] = [
     solutionCommand: 'mlflow runs create',
     startWorld: withExperiment('iris'),
     goal: minRuns(1, 'iris'),
+    learning: [
+      'A run is one training or evaluation attempt',
+      'Runs get short hex ids and stay RUNNING until finished',
+    ],
+    goalSteps: ['Start at least one run inside experiment iris'],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Runs',
+          '## What a run really is',
           '',
-          'A **run** records one attempt at solving the problem: the code snapshot context, its parameters, metrics, and artifacts.',
+          'A **run** is a single attempt: *this code + these params + these metrics + these files*. If you train tonight with `lr=0.01` and tomorrow with `lr=0.001`, those are two runs — not two edits of the same record.',
           '',
-          'You already have an experiment `iris` active. Start a run with:',
+          'That immutability is the point. You can always go back and see exactly what produced a bad (or great) metric. MLflow gives each run a short hex id (like `a1b2c3d4`) so you can reference it from scripts and the UI.',
           '',
           '```',
           'mlflow runs create',
           '```',
           '',
-          'The run gets a short hex id (like real MLflow) and appears as a card in the viz.',
+          'A new run starts as `RUNNING` and becomes the **active run**. Subsequent `log` commands attach to it until you finish or switch. The viz shows it as a card — that is your experiment history growing one attempt at a time.',
         ],
       },
       {
         type: 'demo',
-        before: ['Start a demo run and watch a card pop in.'],
-        after: ['The run is `RUNNING` and is now the active run — later logs attach to it.'],
+        before: ['Start a demo run and watch a card pop in on the right.'],
+        after: [
+          'Status is `RUNNING`, and the run id is now active. Everything you log next belongs to this attempt.',
+        ],
         command: 'mlflow runs create --name demo',
       },
       {
@@ -108,27 +130,38 @@ export const introLevels: Level[] = [
       'mlflow runs create; mlflow runs log -p lr=0.01; mlflow runs log -p max_depth=8',
     startWorld: withExperiment('iris'),
     goal: all(runHasParam('lr'), runHasParam('max_depth')),
+    learning: [
+      'Parameters record the inputs (hyperparameters) of a run',
+      'Params are strings and answer: what did we try?',
+    ],
+    goalSteps: [
+      'Log param lr (any value)',
+      'Log param max_depth (any value)',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Parameters',
+          '## Parameters vs metrics',
           '',
-          '**Parameters** record the inputs to training: learning rate, tree depth, feature set… They answer *“what did we try?”*',
-          '',
-          'Log them on the active run:',
+          '**Parameters** are the *inputs* you chose before training: learning rate, tree depth, feature set, batch size. **Metrics** are the *outputs* after training. Confusing them is the fastest way to make a tracker useless.',
           '',
           '```',
-          'mlflow runs log -p key=value',
+          'mlflow runs log -p lr=0.01',
+          'mlflow runs log -p max_depth=8',
           '```',
           '',
-          'Log two params on a run: `lr` and `max_depth` (any values).',
+          'MLflow stores params as **strings** (even numbers). That is intentional — they are labels for configuration, not series you chart. Log every knob you would need to *reproduce* this run later. If `sklearn` defaults matter, log them explicitly; “default” drifts across versions.',
+          '',
+          'In the viz, params show as blue badges on the run card. Two runs with different `lr` are immediately distinguishable.',
         ],
       },
       {
         type: 'demo',
         before: ['Create a run and log `lr=0.01`.'],
-        after: ['The param appears on the run card as a blue badge.'],
+        after: [
+          'Blue badge on the card: `p lr=0.01`. That is the experiment’s “what we tried” line.',
+        ],
         command: 'mlflow runs create; mlflow runs log -p lr=0.01',
       },
       {
@@ -153,25 +186,44 @@ export const introLevels: Level[] = [
       runHasMetric('acc', { min: 0.9 }),
       runHasMetric('f1', { min: 0.85 }),
     ),
+    learning: [
+      'Metrics are numeric outputs you compare across runs',
+      'Log the business metric and the diagnostic metric together',
+    ],
+    goalSteps: [
+      'On one run: param model',
+      'On the same run: metric acc >= 0.9',
+      'On the same run: metric f1 >= 0.85',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Metrics',
+          '## Metrics that earn their keep',
           '',
-          '**Metrics** are numbers you compare across runs: accuracy, AUC, latency, loss.',
+          '**Metrics** answer *how well did this attempt work?* — accuracy, AUC, F1, latency, loss. They are numbers you chart over time and compare across runs.',
           '',
           '```',
           'mlflow runs log -m acc=0.95',
+          'mlflow runs log -m f1=0.91',
           '```',
           '',
-          'The viz draws a small sparkline tick per metric on the run card. Values must be numeric.',
+          'Two rules of thumb:',
+          '',
+          '- Log the **business metric** stakeholders care about (churn recall, fraud precision).',
+          '- Log the **diagnostic** that explains *why* (train loss vs val loss, calibration). One accuracy number cannot tell you if you overfit.',
+          '',
+          'Values must be numeric. Log step-wise series too (`mlflow runs log -m loss=0.4` every epoch) — MLflow keeps the history so the UI can draw curves, not just a last value.',
+          '',
+          'In the viz, metrics are amber badges. High scores (≥ 0.9) glow green so strong runs pop.',
         ],
       },
       {
         type: 'demo',
         before: ['Log accuracy `0.72` on a fresh run.'],
-        after: ['Amber badge — that is the metric. Better runs will light up greener later.'],
+        after: [
+          'Amber badge: `m acc=0.72`. Weak score, but the habit is what counts.',
+        ],
         command: 'mlflow runs create; mlflow runs log -m acc=0.72',
       },
       {
@@ -199,24 +251,40 @@ export const introLevels: Level[] = [
       runHasArtifact('model.pkl'),
       runHasArtifact('report.html'),
     ),
+    learning: [
+      'Tags are searchable string labels (git sha, stage, owner)',
+      'Artifacts are the files a run produced (model, reports)',
+    ],
+    goalSteps: [
+      'Tag a run with stage=train',
+      'Log artifact model.pkl',
+      'Log artifact report.html',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Tags & Artifacts',
+          '## Tags and artifacts complete the story',
           '',
-          '**Tags** are string labels: git commit, stage, owner. **Artifacts** are files the run produced: the model, a confusion matrix, a notebook export.',
+          'Params say what you *chose*. Metrics say how it *went*. **Tags** add the metadata you filter on later: git commit, `stage=train`, owner, dataset version. **Artifacts** are the heavy outputs: the serialized model, a confusion-matrix PNG, an evaluation notebook.',
           '',
           '```',
           'mlflow runs tag stage=train',
           'mlflow runs log-artifact model.pkl',
+          'mlflow runs log-artifact report.html',
           '```',
+          '',
+          'Without artifacts you cannot *reproduce or ship* — you only have numbers. Log the model binary every time you intend to promote something. Log the evaluation report so a reviewer can open one link and trust the metric.',
+          '',
+          'Practical pattern: tag `mlflow.user`, `git.sha`, `data.snapshot` automatically in production pipelines. Manual tags are fine while you learn; automate them before the second week.',
         ],
       },
       {
         type: 'demo',
         before: ['Tag a run and log one artifact.'],
-        after: ['Tag shows as a muted chip; artifacts stack as file rows under the metrics.'],
+        after: [
+          'Tag is a muted chip; the artifact stacks as a file row. Together they make the run auditable.',
+        ],
         command:
           'mlflow runs create; mlflow runs tag stage=train; mlflow runs log-artifact model.pkl',
       },
@@ -242,20 +310,31 @@ export const introLevels: Level[] = [
       runHasParam('model'),
       runHasMetric('acc', { min: 0.9 }),
     ),
+    learning: [
+      'Name runs so comparison tables stay readable',
+      'Side-by-side metrics are the real payoff of Tracking',
+    ],
+    goalSteps: [
+      'Create at least two runs in iris',
+      'Some run has param model',
+      'Some run has metric acc >= 0.9',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Comparing Runs',
+          '## Comparison is the product',
           '',
-          'Real workflows create **many** runs — different models, different grids — then compare metrics side by side.',
-          '',
-          'Give runs names with `--name` so you can tell them apart in the list.',
+          'A single logged run is a diary entry. Two runs are a **decision**. The moment you have `baseline` at 0.61 and `gbm` at 0.93 with different params, you can defend a model choice in a review meeting.',
           '',
           '```',
           'mlflow runs create --name baseline',
           'mlflow runs create --name gbm',
           '```',
+          '',
+          'Name runs (`--name`) so the comparison table is human. `a1b2c3d4` vs `f00ba12` is not a strategy. Keep names boring and descriptive: `rf-depth8`, `gbm-lr0.05`.',
+          '',
+          'This is also where **command golf** starts to matter: can you set up a fair comparison in few, clear commands? Colleagues will copy your CLI line into their own experiments.',
         ],
       },
       {

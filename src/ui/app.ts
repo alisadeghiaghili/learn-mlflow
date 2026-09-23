@@ -1,11 +1,10 @@
 /**
- * Game shell: wires engine, terminal, viz, and dialogs.
+ * Game shell: engine + terminal + viz + celebrate + progress.
  */
 
 import type { Level, World } from '../engine/types';
 import { executeCommand } from '../engine/commands';
 import {
-  countCommands,
   createHistory,
   popHistory,
   pushHistory,
@@ -22,7 +21,7 @@ import {
   TOK_SANDBOX,
 } from '../engine/tokens';
 import { cloneWorld, createEmptyWorld, sandboxWorld } from './worldBridge';
-import { levelsForSequence, nextLevel, sequences } from '../levels';
+import { levelsForSequence, sequences } from '../levels';
 import { createTerminal, type TerminalHandle } from './terminal';
 import { renderViz, type VizTab } from './viz';
 import {
@@ -32,16 +31,22 @@ import {
   showLevelDialog,
   showLevelsBrowser,
   showSolution,
-  showWin,
 } from './dialogs';
-import { loadProgress, saveGolf, saveSolved } from './progress';
+import { showCelebrate } from './celebrate';
+import {
+  loadProgress,
+  resumeLine,
+  saveProgress,
+  summarizeCurriculum,
+  type LevelProgress,
+} from './progress';
 
 export interface GameShell {
   start: () => void;
 }
 
 export function createGame(root: HTMLElement): GameShell {
-  const progress = loadProgress();
+  let progress = loadProgress();
   let world: World = createEmptyWorld();
   let startWorld: World = createEmptyWorld();
   let history: History = createHistory();
@@ -55,15 +60,27 @@ export function createGame(root: HTMLElement): GameShell {
   let metaEl!: HTMLElement;
 
   function persistSolved(levelId: string, used: number): void {
-    progress.solved.add(levelId);
-    const prev = progress.golf.get(levelId);
-    if (prev === undefined || used < prev) progress.golf.set(levelId, used);
-    saveSolved(progress.solved);
-    saveGolf(progress.golf);
+    const prev: LevelProgress = progress[levelId] ?? { solved: false };
+    const best =
+      prev.bestCommands === undefined
+        ? used
+        : Math.min(prev.bestCommands, used);
+    progress = {
+      ...progress,
+      [levelId]: { solved: true, bestCommands: best },
+    };
+    saveProgress(progress);
+  }
+
+  function goalStepsFor(level: Level | null): string[] {
+    if (!level) return [];
+    return level.goalSteps ?? [level.about];
   }
 
   function renderAll(): void {
     renderViz(vizRoot, world, vizTab, {
+      goalSteps: goalStepsFor(currentLevel),
+      goalDone: currentLevel ? currentLevel.goal(world) : false,
       onSetExperiment: (id) => {
         const result = executeCommand('mlflow experiments set ' + id, world);
         if (result.ok) {
@@ -82,10 +99,15 @@ export function createGame(root: HTMLElement): GameShell {
 
     const levelLabel = currentLevel ? currentLevel.name : 'Sandbox';
     const seq = currentLevel
-      ? (sequences.find((s) => s.id === currentLevel!.sequenceId)?.displayName ?? '')
+      ? (sequences.find((s) => s.id === currentLevel!.sequenceId)?.displayName ??
+        '')
       : 'free play';
     metaEl.textContent =
       levelLabel + '  |  ' + seq + '  |  cmds ' + String(commandCount);
+
+    if (currentLevel) {
+      terminal.setExtraCompletions([currentLevel.solutionCommand.split(';')[0] ?? '']);
+    }
   }
 
   function openLevels(): void {
@@ -93,9 +115,16 @@ export function createGame(root: HTMLElement): GameShell {
     for (const seq of sequences) {
       bySeq.set(seq.id, levelsForSequence(seq.id));
     }
-    showLevelsBrowser(sequences, bySeq, progress.solved, progress.golf, (level) =>
-      loadLevel(level),
+    const solved = new Set(
+      Object.entries(progress)
+        .filter(([, p]) => p.solved)
+        .map(([id]) => id),
     );
+    const golf = new Map<string, number>();
+    for (const [id, p] of Object.entries(progress)) {
+      if (p.bestCommands !== undefined) golf.set(id, p.bestCommands);
+    }
+    showLevelsBrowser(sequences, bySeq, solved, golf, (level) => loadLevel(level));
   }
 
   function handleMeta(segment: string): 'handled' | 'clear' | 'command' {
@@ -138,16 +167,21 @@ export function createGame(root: HTMLElement): GameShell {
     if (won || mode !== 'level' || !currentLevel) return;
     if (!currentLevel.goal(world)) return;
     won = true;
-    persistSolved(currentLevel.id, commandCount);
-    const par = countCommands(currentLevel.solutionCommand);
+    const level = currentLevel;
+    persistSolved(level.id, commandCount);
     terminal.log('sys', 'Level complete.');
     renderAll();
-    const levelId = currentLevel.id;
-    showWin(currentLevel, commandCount, par, () => {
-      const nxt = nextLevel(levelId, progress.solved);
-      closeModal();
-      if (nxt) loadLevel(nxt);
-      else startSandbox();
+
+    const curriculum = summarizeCurriculum(progress);
+    showCelebrate({
+      level,
+      used: commandCount,
+      curriculum,
+      onNext: (nxt) => loadLevel(nxt),
+      onStay: () => {
+        terminal.focus();
+      },
+      onBrowse: () => openLevels(),
     });
   }
 
@@ -163,14 +197,19 @@ export function createGame(root: HTMLElement): GameShell {
     for (const segment of segments) {
       terminal.log('cmd', segment);
       const meta = handleMeta(segment);
-      if (meta === 'handled') continue;
+      if (meta === 'handled') {
+        terminal.focus();
+        continue;
+      }
       if (meta === 'clear') {
         terminal.clear();
+        terminal.focus();
         continue;
       }
 
       if (currentLevel?.disabledCommands?.some((d) => segment.startsWith(d))) {
         terminal.log('err', 'That command is disabled in this level.');
+        terminal.focus();
         continue;
       }
 
@@ -179,6 +218,7 @@ export function createGame(root: HTMLElement): GameShell {
       if (!result.ok) {
         history = popHistory(history)?.history ?? history;
         terminal.log('err', result.error);
+        terminal.focus();
         continue;
       }
 
@@ -212,8 +252,8 @@ export function createGame(root: HTMLElement): GameShell {
 
       renderAll();
       checkWin();
+      terminal.focus();
     }
-    terminal.focus();
   }
 
   function loadLevel(level: Level): void {
@@ -227,6 +267,7 @@ export function createGame(root: HTMLElement): GameShell {
     vizTab = 'tracking';
     renderAll();
     terminal.log('sys', 'Level: ' + level.name);
+    terminal.setHint(level.solutionCommand.split(';')[0]?.trim() ?? null);
     showLevelDialog(level, {
       onDemo: (cmd) => {
         for (const segment of cmd
@@ -261,6 +302,7 @@ export function createGame(root: HTMLElement): GameShell {
     history = clearHistory(createHistory());
     vizTab = 'tracking';
     closeModal();
+    terminal.setHint(null);
     terminal.log(
       'sys',
       'Sandbox mode. Type levels for tutorials, help for commands.',
@@ -294,6 +336,7 @@ export function createGame(root: HTMLElement): GameShell {
       sandboxBtn.onclick = () => {
         terminal.log('cmd', 'sandbox');
         startSandbox();
+        terminal.focus();
       };
       const levelsBtn = document.createElement('button');
       levelsBtn.textContent = 'Levels';
@@ -329,8 +372,18 @@ export function createGame(root: HTMLElement): GameShell {
       root.append(header, workspace, footer);
       terminal = createTerminal(termHost, runLine);
 
-      terminal.log('sys', 'LearnMLflow - interactive MLflow Tracking and Registry tutorial');
-      terminal.log('out', 'Type levels to learn, or help for commands.');
+      terminal.log(
+        'sys',
+        'LearnMLflow - interactive MLflow Tracking and Registry tutorial',
+      );
+      const summary = summarizeCurriculum(progress);
+      if (summary.solvedCount) {
+        for (const line of resumeLine(summary).split('\n')) {
+          terminal.log('meta', line);
+        }
+      } else {
+        terminal.log('out', 'Type levels to learn, or help for commands.');
+      }
       startSandbox();
       terminal.focus();
     },

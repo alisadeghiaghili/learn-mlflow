@@ -1,5 +1,5 @@
 /**
- * Registry sequence — Model Registry stages.
+ * Registry sequence — Model Registry stages with deeper teaching notes.
  */
 
 import type { Level } from '../engine/types';
@@ -22,26 +22,40 @@ export const registryLevels: Level[] = [
       'mlflow runs create; mlflow runs log-artifact model.pkl; mlflow models register -n iris-clf',
     startWorld: withExperiment('iris'),
     goal: all(modelExists('iris-clf', 1), runHasArtifact('model.pkl')),
+    learning: [
+      'Model Registry versions named models from runs',
+      'Registration is the bridge from experiment to release',
+    ],
+    goalSteps: [
+      'A run with artifact model.pkl',
+      'Register model iris-clf (at least version 1)',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Model Registry',
+          '## Tracking stops at the lab door',
           '',
-          'Training a model is not enough — you need a **named, versioned** artifact the team can promote to staging or production.',
+          'Tracking answers *what happened during training*. Production asks a different question: *which binary is live, and who approved it?* That is the **Model Registry**.',
           '',
-          'The registry does that. Each `register` creates the next **version** of a model from a run.',
+          'Registering does not re-train. It points at a run’s artifact (`model.pkl`) and gives it a **stable name + version**. Clients load `models:/iris-clf/Production` — they never hardcode a run id from three sprints ago.',
           '',
           '```',
           'mlflow runs log-artifact model.pkl',
           'mlflow models register -n iris-clf',
           '```',
+          '',
+          'Each `register` appends a version (`v1`, `v2`, …). Never overwrite. Rolling back means promoting an older version — not hunting through S3 folders.',
         ],
       },
       {
         type: 'demo',
-        before: ['Create a run, log `model.pkl`, register it as `demo-model`.'],
-        after: ['A version card appears in the Registry board under stage **None**.'],
+        before: [
+          'Create a run, log `model.pkl`, register it as `demo-model`. Switch the top tab to Registry to see the board.',
+        ],
+        after: [
+          'A version card sits in stage **None**. That is the waiting room until someone promotes it.',
+        ],
         command:
           'mlflow runs create; mlflow runs log-artifact model.pkl; mlflow models register -n demo-model',
       },
@@ -63,29 +77,41 @@ export const registryLevels: Level[] = [
       'mlflow runs create; mlflow runs log-artifact model.pkl; mlflow models register -n iris-clf; mlflow models transition -n iris-clf --version 1 --stage Staging',
     startWorld: withExperiment('iris'),
     goal: modelVersionInStage('iris-clf', 1, 'Staging'),
+    learning: [
+      'Stages label lifecycle: None, Staging, Production, Archived',
+      'Staging is where integration tests run before serving',
+    ],
+    goalSteps: [
+      'Register iris-clf version 1',
+      'Transition version 1 to Staging',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Stages',
+          '## Stages are a social contract',
           '',
           'A registered version sits in `None` until someone **transitions** it. The classic path:',
           '',
           '```',
-          'None → Staging → Production → Archived',
+          'None -> Staging -> Production -> Archived',
           '```',
           '',
           '```',
           'mlflow models transition -n iris-clf --version 1 --stage Staging',
           '```',
           '',
-          'Watch the version card slide across the board — that is the promotion.',
+          '`Staging` means: *candidate for release, not yet trusted by users*. Integration tests, shadow traffic, fairness checks live here. The stage label is how a team of five agrees on status without a Slack thread.',
+          '',
+          'Watch the version card slide across the Registry board — that movement is the promotion ritual.',
         ],
       },
       {
         type: 'demo',
         before: ['Register a model and promote v1 to Staging.'],
-        after: ['The card slides into the Staging column. Stage colors match MLflow’s mental model.'],
+        after: [
+          'The card slides into the Staging column. Colors track the lifecycle: gray → blue → amber → red.',
+        ],
         command:
           'mlflow runs create; mlflow runs log-artifact model.pkl; mlflow models register -n demo-model; mlflow models transition -n demo-model --version 1 --stage Staging',
       },
@@ -107,15 +133,22 @@ export const registryLevels: Level[] = [
       'mlflow runs create; mlflow runs log-artifact model.pkl; mlflow models register -n iris-clf; mlflow models transition -n iris-clf --version 1 --stage Staging; mlflow models transition -n iris-clf --version 1 --stage Production',
     startWorld: withExperiment('iris'),
     goal: modelVersionInStage('iris-clf', 1, 'Production'),
+    learning: [
+      'Production is the version serving traffic',
+      'Promotion should be an explicit, audited transition',
+    ],
+    goalSteps: ['Put iris-clf version 1 into Production'],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Production',
+          '## Production is a pointer, not a folder',
           '',
-          'When a version is validated in staging, promote it to `Production`. That is the version clients should load.',
+          'When a version is validated in staging, promote it to `Production`. Serving code should load `models:/iris-clf/Production` — a **moving pointer**. Yesterday’s binary stays on disk; today’s pointer moves.',
           '',
-          'You can jump straight from `None` to `Production` if you want — the stage is a label, not a state machine lock. Teams usually walk the path so each promotion is an explicit decision.',
+          'That single indirection is how you roll back in seconds: transition the old version back to `Production`. No redeploy of the API if it already knows how to resolve the URI.',
+          '',
+          'You *can* jump straight from `None` to `Production` — the stage is a label, not a locked state machine. Teams walk the path so each promotion is an explicit decision with a paper trail.',
         ],
       },
       {
@@ -135,16 +168,29 @@ export const registryLevels: Level[] = [
     solutionCommand:
       'mlflow runs create --name v1-train; mlflow runs log-artifact model.pkl; mlflow models register -n iris-clf; mlflow runs create --name v2-train; mlflow runs log-artifact model.pkl; mlflow models register -n iris-clf; mlflow models transition -n iris-clf --version 2 --stage Staging',
     startWorld: withExperiment('iris'),
-    goal: all(modelExists('iris-clf', 2), modelVersionInStage('iris-clf', 2, 'Staging')),
+    goal: all(
+      modelExists('iris-clf', 2),
+      modelVersionInStage('iris-clf', 2, 'Staging'),
+    ),
+    learning: [
+      'Same model name appends versions; it never overwrites',
+      'Version history enables safe rollback',
+    ],
+    goalSteps: [
+      'Model iris-clf with at least 2 versions',
+      'Version 2 in Staging',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Versions',
+          '## Versions are how you sleep at night',
           '',
-          'Registering the **same model name** again does not overwrite — it appends version 2, 3, …',
+          'Registering the **same model name** again does not overwrite — it appends version 2, 3, … Each version is an immutable pointer to the run that produced it.',
           '',
-          'That history is the point: you can roll back to v1 without digging through artifact stores.',
+          'That history is the point. When v2 silently breaks precision on a segment, you roll back to v1 without digging through artifact stores or guessing which S3 prefix was “the good one”.',
+          '',
+          'A healthy cadence looks like: train → register vN → stage → production → archive vN-1. The Registry board becomes a timeline of release decisions.',
         ],
       },
       {
@@ -170,19 +216,29 @@ export const registryLevels: Level[] = [
       modelVersionInStage('iris-clf', 1, 'Archived'),
       modelVersionInStage('iris-clf', 2, 'Production'),
     ),
+    learning: [
+      'Archive retired versions so nobody loads them by accident',
+      'Archived != deleted — history remains for audit',
+    ],
+    goalSteps: [
+      'Put version 2 in Production',
+      'Archive version 1',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## Archive',
+          '## Archive is not delete',
           '',
-          'When a new version takes Production, archive the previous one so nobody loads it by accident.',
+          'When a new version takes Production, archive the previous one so nobody loads it by accident. The run and artifact stay; only the *stage label* changes.',
           '',
           '```',
           'mlflow models archive -n iris-clf --version 1',
           '```',
           '',
-          'Or: `mlflow models transition … --stage Archived` — same result.',
+          'Or: `mlflow models transition … --stage Archived` — same result. Use `archive` when the intent is “retire this”; use `transition` when you are walking the full path.',
+          '',
+          'You start with `iris-clf` already at v1 and v2 (both `None`). Promote v2, retire v1. That is a complete release story in two commands.',
         ],
       },
       {
@@ -201,16 +257,24 @@ export const registryLevels: Level[] = [
     sequenceId: 'registry',
     name: 'Full Promotion Path',
     about: 'Walk a model through every stage — the whole story.',
-    hint: 'None → Staging → Production → Archived on one version, or split across versions.',
+    hint: 'None -> Staging -> Production -> Archived on one version.',
     solutionCommand:
       'mlflow runs create; mlflow runs log -p model=gbm; mlflow runs log -m acc=0.96; mlflow runs log-artifact model.pkl; mlflow models register -n churn; mlflow models transition -n churn --version 1 --stage Staging; mlflow models transition -n churn --version 1 --stage Production; mlflow models transition -n churn --version 1 --stage Archived',
     startWorld: withExperiment('churn'),
     goal: modelVersionInStage('churn', 1, 'Archived'),
+    learning: [
+      'Full lifecycle: None, Staging, Production, Archived',
+      'Retirement is part of the model release process',
+    ],
+    goalSteps: [
+      'Register model churn (any run)',
+      'Drive version 1 through to Archived',
+    ],
     dialog: [
       {
         type: 'text',
         markdown: [
-          '## The Full Path',
+          '## The full path, end to end',
           '',
           'One version, every stage:',
           '',
@@ -218,7 +282,9 @@ export const registryLevels: Level[] = [
           'None -> Staging -> Production -> Archived',
           '```',
           '',
-          'In production teams the last step happens when **v2** is promoted and **v1** is retired.',
+          'In production teams the last step happens when **v2** is promoted and **v1** is retired. Walking all four yourself locks the mental model: every stage is a *decision*, not a file permission.',
+          '',
+          'After this level you should be able to explain to a colleague: Tracking records attempts; the Registry decides what ships. Different jobs, one platform.',
         ],
       },
       {

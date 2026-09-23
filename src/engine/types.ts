@@ -84,6 +84,10 @@ export interface Level {
   startWorld: World;
   goal: GoalFn;
   dialog: ModalStep[];
+  /** Short learning outcomes for share posts and the curriculum summary. */
+  learning?: string[];
+  /** Checklist shown in the right panel; each line is one required outcome. */
+  goalSteps?: string[];
   disabledCommands?: string[];
 }
 
