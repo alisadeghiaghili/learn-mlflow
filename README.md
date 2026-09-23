@@ -3,6 +3,8 @@
 Interactive MLflow visualization, sandbox, and tutorial game — modeled on
 [learnGitBranching](https://github.com/pcottle/learnGitBranching).
 
+**Live:** https://alisadeghiaghili.github.io/learn-mlflow/
+
 Type `mlflow …` commands into a terminal. A live dashboard updates Tracking
 (experiments, runs, params, metrics, tags, artifacts) and Model Registry
 (versions + stages). Levels teach the workflow with goal predicates and
