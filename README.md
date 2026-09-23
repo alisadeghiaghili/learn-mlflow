@@ -1,7 +1,6 @@
 # LearnMLflow
 
-Interactive MLflow visualization, sandbox, and tutorial game — modeled on
-[learnGitBranching](https://github.com/pcottle/learnGitBranching).
+Interactive MLflow visualization, sandbox, and tutorial game.
 
 **Live:** https://alisadeghiaghili.github.io/learn-mlflow/
 
@@ -67,4 +66,4 @@ See [DESIGN.md](./DESIGN.md) for the visual system and product model.
 
 ## License
 
-MIT
+Apache-2.0

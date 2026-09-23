@@ -1,8 +1,8 @@
 /**
  * Goal predicates and helpers for levels.
  *
- * Unlike learnGitBranching's goalTreeString, MLflow state is rich (params,
- * metrics, stages). Goals are boolean predicates over World — easy to write,
+ * Unlike a fixed goal-tree snapshot, MLflow state is rich (params, metrics,
+ * stages). Goals are boolean predicates over World — easy to write,
  * easy to test, and honest about what "solved" means.
  */
 

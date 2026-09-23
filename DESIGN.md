@@ -2,7 +2,7 @@
 
 ## Product
 
-Interactive MLflow sandbox + tutorial game, modeled on [learnGitBranching](https://github.com/pcottle/learnGitBranching).
+Interactive MLflow sandbox + tutorial game.
 Learner types `mlflow …` commands into a terminal; a live dashboard updates as Tracking / Model Registry state changes. Levels use goal predicates (not exact tree equality — MLflow state is richer than a commit graph). Sandbox mode is free-play with `undo` / `reset`. Command golf tracks how many commands it takes to clear a level.
 
 ## Style anchor
@@ -119,6 +119,8 @@ Pure engine, no DOM. UI is a thin reactive shell. Tests cover engine + goals onl
 - Level builder / gist import
 - Model signatures, datasets, prompts/LLM (later sequences)
 
-## Inspired by
+## Signature product patterns
 
-`pcottle/learnGitBranching` — split terminal+viz, sandbox-first, levels with dialogs + demos, golf, undo/reset, goal trees.
+- Split terminal + live viz, sandbox-first, levels with dialogs + demos, golf, undo/reset, goal predicates
+- Level-clear celebration with confetti and social share (LinkedIn / X / Facebook) including curriculum so far
+- Word-by-word Tab completion and shell history in the terminal
