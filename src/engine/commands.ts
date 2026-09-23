@@ -1,11 +1,10 @@
 /**
- * Command parser and executor for the LearnMLflow terminal.
+ * Expanded command surface for the full curriculum.
  *
- * Accepts a simplified, CLI-faithful subset of `mlflow` plus game meta
- * commands. Returns a new World on success; never mutates the input.
+ * Groups: experiments, runs, artifacts, models, autolog, evaluate, datasets, genai
  */
 
-import type { CommandResult, Stage, World } from './types';
+import type { CommandResult, Run, Stage, World } from './types';
 import { STAGES } from './types';
 import {
   TOK_CLEAR,
@@ -21,18 +20,35 @@ import {
   createExperiment,
   createRun,
   deleteRun,
+  describeModelVersion,
   finishRun,
   getExperiment,
   getExperimentByName,
   getModel,
   listRuns,
+  loadModel,
   logArtifact,
+  logDataset,
+  logEval,
   logMetric,
   logParam,
+  logPrompt,
   logTag,
+  logTrace,
+  markAutologged,
+  predict,
   registerModel,
   resolveRun,
+  searchRuns,
+  serveModel,
+  servePredict,
   setActiveExperiment,
+  setActiveParent,
+  setAlias,
+  setAutolog,
+  setSource,
+  stopServe,
+  tagExperiment,
   transitionStage,
 } from './world';
 
@@ -86,21 +102,21 @@ function parseKeyValue(pair: string): { key: string; value: string } | null {
   return { key: pair.slice(0, idx), value: pair.slice(idx + 1) };
 }
 
-function formatRunLine(run: World['runs'][string]): string {
-  const status = run.status.padEnd(8);
-  const name = run.name.padEnd(18);
+function formatRunLine(run: Run): string {
   return (
     '  ' +
     run.id +
     '  ' +
-    status +
+    run.status.padEnd(8) +
     '  ' +
-    name +
-    '  ' +
+    run.name.padEnd(16) +
+    (run.parentId ? ' [nested]' : '') +
+    '  p' +
     String(Object.keys(run.params).length) +
-    ' params  ' +
+    ' m' +
     String(Object.keys(run.metrics).length) +
-    ' metrics'
+    ' a' +
+    String(run.artifacts.length)
   );
 }
 
@@ -109,105 +125,169 @@ function helpLines(): string[] {
     'LearnMLflow commands',
     '',
     'Tracking',
-    '  mlflow experiments create -n <name>     Create and activate an experiment',
-    '  mlflow experiments set <id|name>        Set the active experiment',
-    '  mlflow experiments list                 List experiments',
-    '  mlflow runs create [--name <name>]      Start a run in the active experiment',
-    '  mlflow runs set <id|latest>             Set the active run',
-    '  mlflow runs list [experiment]           List runs',
-    '  mlflow runs log -p key=value            Log a parameter',
-    '  mlflow runs log -m key=value            Log a metric',
-    '  mlflow runs tag key=value               Set a tag',
-    '  mlflow runs log-artifact <name>         Log an artifact file',
-    '  mlflow runs delete <id>                 Delete a run',
-    '  mlflow runs finish [id] [FINISHED|FAILED|KILLED]',
+    '  mlflow experiments create -n <name> [--tag k=v]',
+    '  mlflow experiments set <id|name>',
+    '  mlflow experiments list | tag <name> k=v',
+    '  mlflow runs create [--name <name>] [--nested] [--parent <id>]',
+    '  mlflow runs set <id|latest> | set-parent <id|none>',
+    '  mlflow runs list | search "<filter>" | delete <id> | finish [id]',
+    '  mlflow runs log -p key=value | -m key=value [--step N]',
+    '  mlflow runs tag key=value',
+    '  mlflow runs source --git <sha> --entry <path> [--version <v>]',
+    '  mlflow runs env --python <v> --mlflow <v>',
+    '  mlflow runs log-artifact <name> [--model] [--flavor <f>]',
     '',
-    'Model Registry',
-    '  mlflow models register -n <name> [--run <id>]   Register a model version',
-    '  mlflow models list                       List registered models',
-    '  mlflow models get <name>                 Show model versions',
+    'Artifacts & data',
+    '  mlflow artifacts list [--run <id>]',
+    '  mlflow datasets log <name> [--type csv|pq|sql]',
+    '',
+    'Models',
+    '  mlflow models register -n <name> [--run <id>] [--flavor <f>] [--signature <s>]',
+    '  mlflow models list | get <name> | describe -n <name> --version <n> --text <t>',
     '  mlflow models transition -n <name> --version <n> --stage <S>',
     '  mlflow models archive -n <name> --version <n>',
-    '  Stages: None | Staging | Production | Archived',
+    '  mlflow models alias -n <name> --alias <a> --version <n>',
+    '  mlflow models load -n <name> (--stage <S> | --version <n> | @alias)',
+    '  mlflow models predict --rows <n>',
+    '  mlflow models serve -n <name> --port <p> [--stage <S>]',
+    '  mlflow models invoke --json "..." | stop-serve',
+    '',
+    'Training helpers',
+    '  mlflow autolog <sklearn|pytorch|off>',
+    '  mlflow evaluate --metric <name> --value <v> [--higher-better true|false]',
+    '',
+    'GenAI',
+    '  mlflow genai log-prompt "<text>"',
+    '  mlflow genai log-trace --name <n> --kind LLM|CHAIN|TOOL|RETRIEVER [--status OK|ERROR]',
     '',
     'Game',
     '  levels  hint  solution  undo  reset  sandbox  clear  help',
   ];
 }
 
-function execExperiments(world: World, action: string, args: string[]): CommandResult {
-  if (action === 'create') {
-    let name: string | null = null;
-    for (let i = 0; i < args.length; i += 1) {
-      if (args[i] === '-n' || args[i] === '--name') name = args[i + 1] ?? null;
-      else if (args[i].startsWith('--name=')) name = args[i].slice(7);
+function flagValue(args: string[], ...names: string[]): string | null {
+  for (let i = 0; i < args.length; i += 1) {
+    for (const n of names) {
+      if (args[i] === n && args[i + 1] != null) return args[i + 1];
+      if (args[i].startsWith(n + '=')) return args[i].slice(n.length + 1);
     }
+  }
+  return null;
+}
+
+function hasFlag(args: string[], ...names: string[]): boolean {
+  return args.some((a) => names.includes(a) || names.some((n) => a.startsWith(n + '=')));
+}
+
+function execExperiments(
+  world: World,
+  action: string,
+  args: string[],
+): CommandResult {
+  if (action === 'create') {
+    let name = flagValue(args, '-n', '--name');
     if (!name) {
-      const pos = args.find((a) => !a.startsWith('-'));
-      name = pos ?? null;
+      name = args.find((a) => !a.startsWith('-')) ?? null;
     }
     if (!name) return fail(world, 'Usage: mlflow experiments create -n <name>');
     if (getExperimentByName(world, name)) {
       return fail(world, "Experiment '" + name + "' already exists.");
     }
     const created = createExperiment(world, name);
-    return ok(created.world, [
-      "Created experiment '" + created.experiment.name + "' (id=" + created.experiment.id + ')',
+    let w = created.world;
+    const tagPair = flagValue(args, '--tag');
+    if (tagPair) {
+      const kv = parseKeyValue(tagPair);
+      if (kv) w = tagExperiment(w, created.experiment.id, kv.key, kv.value);
+    }
+    return ok(w, [
+      "Created experiment '" +
+        created.experiment.name +
+        "' (id=" +
+        created.experiment.id +
+        ')',
       "Active experiment is now '" + created.experiment.name + "'",
     ]);
   }
-
   if (action === 'set') {
     const ref = args[0];
     if (!ref) return fail(world, 'Usage: mlflow experiments set <id|name>');
     const exp =
-      getExperiment(world, ref) ??
-      getExperimentByName(world, ref) ??
-      world.experiments.find((e) => e.name === ref);
+      getExperiment(world, ref) ?? getExperimentByName(world, ref);
     if (!exp) return fail(world, "Experiment '" + ref + "' not found.");
     return ok(setActiveExperiment(world, exp.id), [
       "Active experiment is now '" + exp.name + "' (id=" + exp.id + ')',
     ]);
   }
-
   if (action === 'list') {
-    if (world.experiments.length === 0) {
-      return ok(world, [
-        'No experiments yet. Create one with `mlflow experiments create -n <name>`.',
-      ]);
+    if (!world.experiments.length) {
+      return ok(world, ['No experiments yet.']);
     }
     const lines = ['Experiment_id    Name                 # Runs', '-'.repeat(48)];
     for (const e of world.experiments) {
       const mark = e.id === world.activeExperimentId ? '*' : ' ';
-      lines.push(mark + e.id.padEnd(16) + ' ' + e.name.padEnd(20) + ' ' + String(e.runIds.length));
+      lines.push(
+        mark + e.id.padEnd(16) + ' ' + e.name.padEnd(20) + ' ' + String(e.runIds.length),
+      );
     }
     return ok(world, lines);
   }
-
-  return fail(world, 'Usage: mlflow experiments create|set|list');
+  if (action === 'tag') {
+    const name = args[0];
+    const pair = args.find((a) => a.includes('=') && !a.startsWith('-'));
+    const kv = pair ? parseKeyValue(pair) : null;
+    if (!name || !kv) return fail(world, 'Usage: mlflow experiments tag <name> key=value');
+    const exp = getExperimentByName(world, name) ?? getExperiment(world, name);
+    if (!exp) return fail(world, "Experiment '" + name + "' not found.");
+    return ok(tagExperiment(world, exp.id, kv.key, kv.value), [
+      'Tagged experiment ' + exp.name + '  ' + kv.key + '=' + kv.value,
+    ]);
+  }
+  return fail(world, 'Usage: mlflow experiments create|set|list|tag');
 }
 
 function execRuns(world: World, action: string, args: string[]): CommandResult {
   if (action === 'create') {
-    if (!world.activeExperimentId || !getExperiment(world, world.activeExperimentId)) {
-      return fail(
-        world,
-        'No active experiment. Use `mlflow experiments create -n <name>` or `mlflow experiments set <id|name>`.',
-      );
+    if (!world.activeExperimentId) {
+      return fail(world, 'No active experiment. Create one first.');
     }
-    let name: string | undefined;
-    for (let i = 0; i < args.length; i += 1) {
-      if (args[i] === '--name' || args[i] === '-n') name = args[i + 1];
-      else if (args[i].startsWith('--name=')) name = args[i].slice(7);
+    const name = flagValue(args, '--name', '-n');
+    const parent = flagValue(args, '--parent');
+    const nested = hasFlag(args, '--nested');
+    const parentId = nested ? world.activeRunId : parent;
+    const created = createRun(
+      world,
+      world.activeExperimentId,
+      name ?? undefined,
+      parentId ?? null,
+    );
+    let w = created.world;
+    const flavor = w.autologFlavor;
+    if (flavor) {
+      w = markAutologged(w, created.run.id);
+      w = logParam(w, created.run.id, 'framework', flavor);
+      w = logMetric(w, created.run.id, 'train_loss', 0.42, 0);
+      w = logMetric(w, created.run.id, 'train_loss', 0.28, 1);
+      w = logMetric(w, created.run.id, 'train_loss', 0.18, 2);
+      w = logArtifact(w, created.run.id, 'model.pkl', 'model', flavor);
     }
-    const expId = world.activeExperimentId;
-    const created = createRun(world, expId, name);
-    return ok(created.world, [
-      'Run ' + created.run.id + ' started in experiment ' + expId,
+    w = setSource(
+      w,
+      created.run.id,
+      {
+        git: w.autologFlavor ? 'abc1234' : null,
+        entry: w.autologFlavor ? 'train.py' : null,
+      },
+      {
+        python: w.autologFlavor ? '3.11.8' : null,
+        mlflow: w.autologFlavor ? '2.14.0' : null,
+      },
+    );
+    return ok(w, [
+      'Run ' + created.run.id + ' started' + (parentId ? ' (nested under ' + parentId + ')' : ''),
       'Active run: ' + created.run.id,
     ]);
   }
-
   if (action === 'set') {
     const ref = args[0];
     if (!ref) return fail(world, 'Usage: mlflow runs set <id|latest>');
@@ -217,23 +297,20 @@ function execRuns(world: World, action: string, args: string[]): CommandResult {
     next.activeRunId = run.id;
     return ok(next, ['Active run: ' + run.id]);
   }
-
+  if (action === 'set-parent') {
+    const ref = args[0];
+    if (!ref || ref === 'none') {
+      return ok(setActiveParent(world, null), ['Active parent run: none']);
+    }
+    const run = resolveRun(world, ref);
+    if (!run) return fail(world, "Run '" + ref + "' not found.");
+    return ok(setActiveParent(world, run.id), ['Active parent run: ' + run.id]);
+  }
   if (action === 'list') {
-    const expRef = args[0];
-    let expId: string | undefined;
-    if (expRef) {
-      const exp = getExperiment(world, expRef) ?? getExperimentByName(world, expRef);
-      if (!exp) return fail(world, "Experiment '" + expRef + "' not found.");
-      expId = exp.id;
-    } else {
-      expId = world.activeExperimentId ?? undefined;
-    }
-    const runs = listRuns(world, expId);
-    if (runs.length === 0) {
-      return ok(world, ['No runs. Create one with `mlflow runs create`.']);
-    }
+    const runs = listRuns(world, world.activeExperimentId ?? undefined);
+    if (!runs.length) return ok(world, ['No runs.']);
     const lines = [
-      'Run_id    Status    Name                Params  Metrics',
+      'Run_id    Status    Name             Nest  Counts',
       '-'.repeat(56),
     ];
     for (const r of runs) {
@@ -242,9 +319,29 @@ function execRuns(world: World, action: string, args: string[]): CommandResult {
     }
     return ok(world, lines);
   }
-
+  if (action === 'search') {
+    // filter is remaining args joined, or quoted already stripped by tokenize
+    const filter = args.join(' ');
+    const hits = searchRuns(world, filter);
+    if (!hits.length) return ok(world, ['No runs matched.']);
+    const lines = ['Run_id    Name             acc    lr', '-'.repeat(40)];
+    for (const r of hits) {
+      lines.push(
+        '  ' +
+          r.id +
+          '  ' +
+          r.name.padEnd(16) +
+          String(r.metrics.acc ?? '-').padEnd(6) +
+          ' ' +
+          (r.params.lr ?? '-'),
+      );
+    }
+    return ok(world, ['Matched ' + String(hits.length) + ' run(s)', ...lines]);
+  }
   if (action === 'log') {
-    let target: string | null = null;
+    let target = flagValue(args, '--run', '-r');
+    let step = Number(flagValue(args, '--step') ?? '0');
+    if (!Number.isFinite(step)) step = 0;
     let key = '';
     let value: string | null = null;
     let kind: 'param' | 'metric' | null = null;
@@ -254,77 +351,92 @@ function execRuns(world: World, action: string, args: string[]): CommandResult {
         kind = 'param';
         value = args[++i] ?? null;
         const kv = value ? parseKeyValue(value) : null;
-        if (kv) {
-          key = kv.key;
-          value = kv.value;
-        } else {
-          return fail(world, 'Expected key=value for -p/--param');
-        }
+        if (!kv) return fail(world, 'Expected key=value for -p');
+        key = kv.key;
+        value = kv.value;
       } else if (a === '-m' || a === '--metric') {
         kind = 'metric';
         value = args[++i] ?? null;
         const kv = value ? parseKeyValue(value) : null;
-        if (kv) {
-          key = kv.key;
-          value = kv.value;
-        } else {
-          return fail(world, 'Expected key=value for -m/--metric');
-        }
-      } else if (a === '--run' || a === '-r') {
-        target = args[++i] ?? null;
-      } else if (a.startsWith('--run=')) {
-        target = a.slice(6);
+        if (!kv) return fail(world, 'Expected key=value for -m');
+        key = kv.key;
+        value = kv.value;
       }
     }
-    if (!kind) {
-      return fail(world, 'Usage: mlflow runs log -p key=value | -m key=value');
-    }
+    if (!kind) return fail(world, 'Usage: mlflow runs log -p k=v | -m k=v [--step N]');
     const run = target ? resolveRun(world, target) : activeRunOr(world);
-    if (!run) {
-      return fail(
-        world,
-        'No active run. Use `mlflow runs create` or `mlflow runs log --run <id>`.',
-      );
-    }
+    if (!run) return fail(world, 'No active run.');
     if (kind === 'param') {
       return ok(logParam(world, run.id, key, value as string), [
-        'Logged param  ' + key + '=' + value + '  -> ' + run.id,
+        'Logged param  ' + key + '=' + value,
       ]);
     }
     const num = Number(value);
     if (!Number.isFinite(num)) {
       return fail(world, "Metric value must be numeric, got '" + value + "'");
     }
-    return ok(logMetric(world, run.id, key, num), [
-      'Logged metric ' + key + '=' + String(num) + '  -> ' + run.id,
+    return ok(logMetric(world, run.id, key, num, step), [
+      'Logged metric ' + key + '=' + String(num) + ' step=' + String(step),
     ]);
   }
-
   if (action === 'tag') {
     const pair = args.find((a) => a.includes('=') && !a.startsWith('--'));
-    const target = args.find((a) => a.startsWith('--run='))?.slice(6);
+    const target = flagValue(args, '--run');
     const kv = pair ? parseKeyValue(pair) : null;
-    if (!kv) return fail(world, 'Usage: mlflow runs tag key=value [--run <id>]');
+    if (!kv) return fail(world, 'Usage: mlflow runs tag key=value');
     const run = target ? resolveRun(world, target) : activeRunOr(world);
     if (!run) return fail(world, 'No active run.');
     return ok(logTag(world, run.id, kv.key, kv.value), [
-      'Tagged  ' + kv.key + '=' + kv.value + '  -> ' + run.id,
+      'Tagged  ' + kv.key + '=' + kv.value,
     ]);
   }
-
+  if (action === 'source') {
+    const run = activeRunOr(world);
+    if (!run) return fail(world, 'No active run.');
+    const git = flagValue(args, '--git') ?? undefined;
+    const entry = flagValue(args, '--entry') ?? undefined;
+    const version = flagValue(args, '--version') ?? undefined;
+    return ok(
+      setSource(world, run.id, {
+        git: git ?? null,
+        entry: entry ?? null,
+        version: version ?? null,
+      }, {}),
+      ['Recorded source on ' + run.id],
+    );
+  }
+  if (action === 'env') {
+    const run = activeRunOr(world);
+    if (!run) return fail(world, 'No active run.');
+    const python = flagValue(args, '--python');
+    const mlflow = flagValue(args, '--mlflow');
+    return ok(
+      setSource(world, run.id, {}, {
+        python: python ?? null,
+        mlflow: mlflow ?? null,
+      }),
+      ['Recorded environment on ' + run.id],
+    );
+  }
   if (action === 'log-artifact' || action === 'log-artifacts') {
     const name = args.find((a) => !a.startsWith('-'));
-    const target = args.find((a) => a.startsWith('--run='))?.slice(6);
-    if (!name) {
-      return fail(world, 'Usage: mlflow runs log-artifact <name> [--run <id>]');
-    }
+    const target = flagValue(args, '--run');
+    const flavor = flagValue(args, '--flavor');
+    const isModel = hasFlag(args, '--model');
+    if (!name) return fail(world, 'Usage: mlflow runs log-artifact <name>');
     const run = target ? resolveRun(world, target) : activeRunOr(world);
     if (!run) return fail(world, 'No active run.');
-    return ok(logArtifact(world, run.id, name), [
-      "Logged artifact '" + name + "' -> " + run.id,
-    ]);
+    return ok(
+      logArtifact(
+        world,
+        run.id,
+        name,
+        isModel ? 'model' : 'file',
+        flavor ?? (isModel ? 'sklearn' : undefined),
+      ),
+      ['Logged artifact ' + name + (isModel ? ' (model)' : '')],
+    );
   }
-
   if (action === 'delete') {
     const ref = args[0];
     if (!ref) return fail(world, 'Usage: mlflow runs delete <id>');
@@ -332,14 +444,11 @@ function execRuns(world: World, action: string, args: string[]): CommandResult {
     if (!run) return fail(world, "Run '" + ref + "' not found.");
     return ok(deleteRun(world, run.id), ['Deleted run ' + run.id]);
   }
-
   if (action === 'finish') {
     const ref = args.find(
       (a) =>
         !a.startsWith('-') &&
-        a.toUpperCase() !== 'FINISHED' &&
-        a.toUpperCase() !== 'FAILED' &&
-        a.toUpperCase() !== 'KILLED',
+        !['FINISHED', 'FAILED', 'KILLED'].includes(a.toUpperCase()),
     );
     const statusArg = args.find((a) =>
       ['FINISHED', 'FAILED', 'KILLED'].includes(a.toUpperCase()),
@@ -350,73 +459,89 @@ function execRuns(world: World, action: string, args: string[]): CommandResult {
         ? world.runs[world.activeRunId]
         : null;
     if (!run) return fail(world, 'No run to finish.');
-    const status = (statusArg?.toUpperCase() ?? 'FINISHED') as
-      | 'FINISHED'
-      | 'FAILED'
-      | 'KILLED';
-    return ok(finishRun(world, run.id, status), ['Run ' + run.id + ' -> ' + status]);
+    const status = (statusArg?.toUpperCase() ?? 'FINISHED') as Run['status'];
+    return ok(finishRun(world, run.id, status), [
+      'Run ' + run.id + ' -> ' + status,
+    ]);
   }
+  return fail(world, 'Unknown runs action');
+}
 
-  return fail(
-    world,
-    'Usage: mlflow runs create|set|list|log|tag|log-artifact|delete|finish',
-  );
+function execArtifacts(world: World, action: string, args: string[]): CommandResult {
+  if (action === 'list') {
+    const target = flagValue(args, '--run');
+    const run = target ? resolveRun(world, target) : activeRunOr(world);
+    if (!run) return fail(world, 'No run selected.');
+    if (!run.artifacts.length) {
+      return ok(world, ['No artifacts on run ' + run.id]);
+    }
+    const lines = run.artifacts.map(
+      (a) =>
+        '  ' +
+        a.path.padEnd(20) +
+        ' ' +
+        a.kind.padEnd(6) +
+        ' ' +
+        String(a.size).padStart(8) +
+        (a.flavor ? '  flavor=' + a.flavor : ''),
+    );
+    return ok(world, ['Artifacts for ' + run.id, ...lines]);
+  }
+  return fail(world, 'Usage: mlflow artifacts list');
 }
 
 function execModels(world: World, action: string, args: string[]): CommandResult {
   if (action === 'register') {
-    let name: string | null = null;
-    let runRef: string | null = null;
-    for (let i = 0; i < args.length; i += 1) {
-      const a = args[i];
-      if (a === '-n' || a === '--name') name = args[i + 1] ?? null;
-      else if (a.startsWith('--name=')) name = a.slice(7);
-      else if (a === '--run' || a === '-r') runRef = args[i + 1] ?? null;
-      else if (a.startsWith('--run=')) runRef = a.slice(6);
-    }
-    if (!name) return fail(world, 'Usage: mlflow models register -n <name> [--run <id>]');
-    const all = listRuns(world);
+    const name = flagValue(args, '-n', '--name');
+    const runRef = flagValue(args, '--run', '-r');
+    const flavor = flagValue(args, '--flavor') ?? 'sklearn';
+    const signature = flagValue(args, '--signature');
+    if (!name) return fail(world, 'Usage: mlflow models register -n <name>');
+    const allRuns = listRuns(world);
     const run = runRef
       ? resolveRun(world, runRef)
       : world.activeRunId
         ? world.runs[world.activeRunId]
-        : all[all.length - 1];
-    if (!run) {
-      return fail(world, 'No run to register. Create a run first or pass --run <id>.');
-    }
-    const registered = registerModel(world, name, run.id);
+        : allRuns[allRuns.length - 1];
+    if (!run) return fail(world, 'No run to register.');
+    let w = logArtifact(world, run.id, 'model', 'model', flavor);
+    const registered = registerModel(w, name, run.id, '', flavor, signature);
     return ok(registered.world, [
-      "Registered model '" +
+      'Registered ' +
         name +
-        "' version " +
+        ' v' +
         String(registered.version.version) +
-        ' from run ' +
+        ' flavor=' +
+        flavor +
+        ' from ' +
         run.id,
     ]);
   }
-
   if (action === 'list') {
     const models = Object.values(world.models);
-    if (models.length === 0) {
-      return ok(world, [
-        'No registered models. Use `mlflow models register -n <name>`.',
-      ]);
-    }
-    const lines = ['Name                 Versions  Latest stage', '-'.repeat(48)];
+    if (!models.length) return ok(world, ['No registered models.']);
+    const lines = [
+      'Name                 Vers  Flavor    Latest stage  Aliases',
+      '-'.repeat(60),
+    ];
     for (const m of models) {
       const latest = m.versions[m.versions.length - 1];
+      const aliases = latest?.aliases.join(',') ?? '-';
       lines.push(
         m.name.padEnd(20) +
           ' ' +
-          String(m.versions.length).padEnd(9) +
+          String(m.versions.length).padEnd(5) +
           ' ' +
-          (latest?.stage ?? '-'),
+          (latest?.flavor ?? '-').padEnd(9) +
+          ' ' +
+          (latest?.stage ?? '-').padEnd(13) +
+          ' ' +
+          aliases,
       );
     }
     return ok(world, lines);
   }
-
-  if (action === 'get' || action === 'versions') {
+  if (action === 'get') {
     const name = args.find((a) => !a.startsWith('-'));
     if (!name) return fail(world, 'Usage: mlflow models get <name>');
     const model = getModel(world, name);
@@ -425,79 +550,194 @@ function execModels(world: World, action: string, args: string[]): CommandResult
       'Model: ' + model.name,
       model.description ? '  ' + model.description : '',
       '',
-      'Version  Stage        Run',
-      '-'.repeat(40),
+      'Ver  Stage       Flavor     Signature  Aliases',
+      '-'.repeat(52),
       ...model.versions.map((v) => {
         const mark = v.stage === 'Production' ? '*' : ' ';
-        return mark + String(v.version).padEnd(8) + ' ' + v.stage.padEnd(12) + ' ' + v.runId;
+        return (
+          mark +
+          String(v.version).padEnd(3) +
+          ' ' +
+          v.stage.padEnd(11) +
+          ' ' +
+          v.flavor.padEnd(10) +
+          ' ' +
+          (v.signature ?? '-').padEnd(10) +
+          ' ' +
+          (v.aliases.join(',') || '-')
+        );
       }),
     ].filter(Boolean);
     return ok(world, lines);
   }
-
-  if (action === 'transition') {
-    let name: string | null = null;
-    let version: number | null = null;
-    let stage: string | null = null;
-    for (let i = 0; i < args.length; i += 1) {
-      const a = args[i];
-      if (a === '-n' || a === '--name') name = args[i + 1] ?? null;
-      else if (a.startsWith('--name=')) name = a.slice(7);
-      else if (a === '--version' || a === '-v') version = Number(args[++i]);
-      else if (a.startsWith('--version=')) version = Number(a.slice(10));
-      else if (a === '--stage') stage = args[++i] ?? null;
-      else if (a.startsWith('--stage=')) stage = a.slice(8);
-    }
-    if (!name || version == null || !Number.isFinite(version) || !stage) {
+  if (action === 'describe') {
+    const name = flagValue(args, '-n', '--name');
+    const version = Number(flagValue(args, '--version') ?? '0');
+    const text = flagValue(args, '--text');
+    if (!name || !version || !text) {
       return fail(
         world,
-        'Usage: mlflow models transition -n <name> --version <n> --stage <None|Staging|Production|Archived>',
+        'Usage: mlflow models describe -n <name> --version <n> --text <t>',
+      );
+    }
+    const updated = describeModelVersion(world, name, version, text);
+    return ok(updated, ['Updated description on ' + name + ' v' + String(version)]);
+  }
+  if (action === 'transition') {
+    const name = flagValue(args, '-n', '--name');
+    const version = Number(flagValue(args, '--version') ?? '0');
+    const stage = flagValue(args, '--stage');
+    if (!name || !version || !stage) {
+      return fail(
+        world,
+        'Usage: mlflow models transition -n <name> --version <n> --stage <S>',
       );
     }
     if (!isStage(stage)) {
-      return fail(
-        world,
-        "Unknown stage '" + stage + "'. Use: None | Staging | Production | Archived",
-      );
+      return fail(world, "Unknown stage '" + stage + "'");
     }
     const result = transitionStage(world, name, version, stage);
-    if (!result) {
-      return fail(world, "Model '" + name + "' version " + String(version) + ' not found.');
-    }
+    if (!result) return fail(world, 'Version not found.');
     return ok(result.world, [
-      'Transitioned ' +
-        name +
-        ' v' +
-        String(result.version.version) +
-        ' -> ' +
-        stage,
+      'Transitioned ' + name + ' v' + String(version) + ' -> ' + stage,
     ]);
   }
-
   if (action === 'archive') {
-    let name: string | null = null;
-    let version: number | null = null;
-    for (let i = 0; i < args.length; i += 1) {
-      const a = args[i];
-      if (a === '-n' || a === '--name') name = args[i + 1] ?? null;
-      else if (a.startsWith('--name=')) name = a.slice(7);
-      else if (a === '--version' || a === '-v') version = Number(args[++i]);
-      else if (a.startsWith('--version=')) version = Number(a.slice(10));
-    }
-    if (!name || version == null) {
+    const name = flagValue(args, '-n', '--name');
+    const version = Number(flagValue(args, '--version') ?? '0');
+    if (!name || !version) {
       return fail(world, 'Usage: mlflow models archive -n <name> --version <n>');
     }
     const result = transitionStage(world, name, version, 'Archived');
-    if (!result) {
-      return fail(world, "Model '" + name + "' version " + String(version) + ' not found.');
-    }
-    return ok(result.world, ['Archived ' + name + ' v' + String(result.version.version)]);
+    if (!result) return fail(world, 'Version not found.');
+    return ok(result.world, ['Archived ' + name + ' v' + String(version)]);
   }
-
-  return fail(world, 'Usage: mlflow models register|list|get|transition|archive');
+  if (action === 'alias') {
+    const name = flagValue(args, '-n', '--name');
+    const alias = flagValue(args, '--alias');
+    const version = Number(flagValue(args, '--version') ?? '0');
+    if (!name || !alias || !version) {
+      return fail(
+        world,
+        'Usage: mlflow models alias -n <name> --alias <a> --version <n>',
+      );
+    }
+    const result = setAlias(world, name, alias, version);
+    if (!result) return fail(world, 'Version not found.');
+    return ok(result.world, [
+      'Alias @' + alias + ' -> ' + name + ' v' + String(version),
+    ]);
+  }
+  if (action === 'load') {
+    const name = flagValue(args, '-n', '--name') ?? args.find((a) => !a.startsWith('-'));
+    if (!name) return fail(world, 'Usage: mlflow models load -n <name> [--stage S | --version n | @alias]');
+    let ref: Stage | number | string = 'Production';
+    const stage = flagValue(args, '--stage');
+    const version = flagValue(args, '--version');
+    const aliasArg = args.find((a) => a.startsWith('@'));
+    if (stage) ref = isStage(stage) ? stage : stage;
+    else if (version) ref = Number(version);
+    else if (aliasArg) ref = aliasArg.slice(1);
+    const result = loadModel(world, name, ref);
+    if (!result) return fail(world, "Cannot resolve model '" + name + "' ref");
+    return ok(result.world, [
+      'Loaded ' + result.uri + '  (v' + String(result.version.version) + ', flavor=' + result.version.flavor + ')',
+    ]);
+  }
+  if (action === 'predict') {
+    const rows = Number(flagValue(args, '--rows') ?? '3');
+    const result = predict(world, rows);
+    if (!result) return fail(world, 'No model loaded. Use `mlflow models load` first.');
+    return ok(result.world, [
+      'Predictions (' + String(result.values.length) + ' rows):',
+      '  [' + result.values.join(', ') + ']',
+    ]);
+  }
+  if (action === 'serve') {
+    const name = flagValue(args, '-n', '--name');
+    const port = Number(flagValue(args, '--port') ?? '5001');
+    const stage = flagValue(args, '--stage') ?? 'Production';
+    if (!name) return fail(world, 'Usage: mlflow models serve -n <name> --port <p>');
+    const loaded = loadModel(world, name, isStage(stage) ? stage : 'Production');
+    if (!loaded) return fail(world, "Cannot resolve model '" + name + "'");
+    const served = serveModel(loaded.world, loaded.uri, port);
+    return ok(served, [
+      'Serving ' + loaded.uri + ' on http://127.0.0.1:' + String(port),
+      'POST /invocations  ready',
+    ]);
+  }
+  if (action === 'invoke') {
+    if (!world.served?.ready) return fail(world, 'Server is not running.');
+    return ok(servePredict(world, 1), [
+      '200 OK',
+      'prediction recorded on ' + world.served.modelUri,
+    ]);
+  }
+  if (action === 'stop-serve') {
+    return ok(stopServe(world), ['Server stopped.']);
+  }
+  return fail(world, 'Unknown models action');
 }
 
-/** Execute one user command. */
+function execAutolog(world: World, action: string): CommandResult {
+  if (action === 'off') {
+    return ok(setAutolog(world, null), ['autolog disabled']);
+  }
+  if (!action) return fail(world, 'Usage: mlflow autolog <sklearn|pytorch|off>');
+  return ok(setAutolog(world, action), [
+    'autolog enabled for ' + action + ' — new runs will record params, metrics, model',
+  ]);
+}
+
+function execEvaluate(world: World, args: string[]): CommandResult {
+  const metric = flagValue(args, '--metric');
+  const value = flagValue(args, '--value');
+  const higher = flagValue(args, '--higher-better') ?? 'true';
+  const run = activeRunOr(world);
+  if (!metric || value == null) {
+    return fail(world, 'Usage: mlflow evaluate --metric <name> --value <v>');
+  }
+  if (!run) return fail(world, 'No active run.');
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fail(world, 'value must be numeric');
+  return ok(logEval(world, run.id, metric, num, higher !== 'false'), [
+    'Evaluated ' + metric + '=' + String(num) + ' on ' + run.id,
+  ]);
+}
+
+function execDatasets(world: World, action: string, args: string[]): CommandResult {
+  if (action === 'log') {
+    const name = args.find((a) => !a.startsWith('-'));
+    const type = flagValue(args, '--type') ?? 'csv';
+    const run = activeRunOr(world);
+    if (!name) return fail(world, 'Usage: mlflow datasets log <name>');
+    if (!run) return fail(world, 'No active run.');
+    return ok(logDataset(world, run.id, name, type), [
+      'Logged dataset ' + name + ' (type=' + type + ')',
+    ]);
+  }
+  return fail(world, 'Usage: mlflow datasets log <name>');
+}
+
+function execGenai(world: World, action: string, args: string[]): CommandResult {
+  const run = activeRunOr(world);
+  if (!run) return fail(world, 'No active run.');
+  if (action === 'log-prompt') {
+    const prompt = args.join(' ');
+    if (!prompt) return fail(world, 'Usage: mlflow genai log-prompt "<text>"');
+    return ok(logPrompt(world, run.id, prompt), ['Logged prompt on ' + run.id]);
+  }
+  if (action === 'log-trace') {
+    const name = flagValue(args, '--name') ?? 'span';
+    const kind = (flagValue(args, '--kind') ?? 'LLM') as Run['traces'][number]['kind'];
+    const status = (flagValue(args, '--status') ?? 'OK') as Run['traces'][number]['status'];
+    return ok(logTrace(world, run.id, name, kind, status), [
+      'Logged trace ' + name + ' kind=' + kind,
+    ]);
+  }
+  return fail(world, 'Usage: mlflow genai log-prompt|log-trace');
+}
+
 export function executeCommand(raw: string, world: World): CommandResult {
   const line = raw.trim();
   if (!line) return ok(world);
@@ -507,45 +747,43 @@ export function executeCommand(raw: string, world: World): CommandResult {
   if (lower === 'clear' || lower === 'cls') return ok(world, [TOK_CLEAR]);
 
   const tokens = tokenize(line);
-  if (tokens.length === 0) return ok(world);
+  if (!tokens.length) return ok(world);
 
   const bare = tokens[0].toLowerCase();
-  if (bare === 'levels' || bare === 'level') {
-    return ok(world, [TOK_LEVELS]);
-  }
-  if (bare === 'hint') {
-    return ok(world, [TOK_HINT]);
-  }
-  if (bare === 'solution' || bare === 'show solution') {
-    return ok(world, [TOK_SOLUTION]);
-  }
-  if (bare === 'undo') {
-    return ok(world, [TOK_UNDO]);
-  }
-  if (bare === 'reset') {
-    return ok(world, [TOK_RESET]);
-  }
-  if (bare === 'sandbox') {
-    return ok(world, [TOK_SANDBOX]);
+  if (bare === 'levels' || bare === 'level') return ok(world, [TOK_LEVELS]);
+  if (bare === 'hint') return ok(world, [TOK_HINT]);
+  if (bare === 'solution') return ok(world, [TOK_SOLUTION]);
+  if (bare === 'undo') return ok(world, [TOK_UNDO]);
+  if (bare === 'reset') return ok(world, [TOK_RESET]);
+  if (bare === 'sandbox') return ok(world, [TOK_SANDBOX]);
+
+  if (tokens[0] === 'mlflow') {
+    const rest = tokens.slice(1);
+    if (!rest.length) return fail(world, 'Usage: mlflow <group> ...');
+    const group = rest[0].toLowerCase();
+    const action = (rest[1] ?? '').toLowerCase();
+    const args = rest.slice(2);
+    if (group === 'experiments') return execExperiments(world, action, args);
+    if (group === 'runs') return execRuns(world, action, args);
+    if (group === 'artifacts') return execArtifacts(world, action, args);
+    if (group === 'models') return execModels(world, action, args);
+    if (group === 'autolog') return execAutolog(world, action);
+    if (group === 'evaluate') return execEvaluate(world, rest.slice(1));
+    if (group === 'datasets') return execDatasets(world, action, args);
+    if (group === 'genai') return execGenai(world, action, args);
+    return fail(world, 'Unknown group `' + rest[0] + '`');
   }
 
-  if (tokens[0] !== 'mlflow') {
-    return fail(
-      world,
-      'Unknown command `' + tokens[0] + '`. Type `help` for the command list.',
-    );
+  // Python-flavored teaching shortcuts used in dialogs
+  if (tokens[0] === 'import' && tokens[1] === 'mlflow') {
+    return ok(world, ['(simulated) import mlflow  — Tracking API ready']);
+  }
+  if (tokens[0] === 'mlflow.sklearn' || line.startsWith('mlflow.sklearn.autolog')) {
+    return executeCommand('mlflow autolog sklearn', world);
   }
 
-  const rest = tokens.slice(1);
-  if (rest.length === 0) return fail(world, 'Usage: mlflow <group> <action> ...');
-
-  const group = rest[0].toLowerCase();
-  const action = (rest[1] ?? '').toLowerCase();
-  const args = rest.slice(2);
-
-  if (group === 'experiments') return execExperiments(world, action, args);
-  if (group === 'runs') return execRuns(world, action, args);
-  if (group === 'models') return execModels(world, action, args);
-
-  return fail(world, 'Unknown group `' + rest[0] + '`. Try: experiments | runs | models');
+  return fail(
+    world,
+    'Unknown command `' + tokens[0] + '`. Type `help` for the command list.',
+  );
 }

@@ -1,65 +1,75 @@
 /**
- * Goal predicates and helpers for levels.
- *
- * Unlike a fixed goal-tree snapshot, MLflow state is rich (params, metrics,
- * stages). Goals are boolean predicates over World — easy to write,
- * easy to test, and honest about what "solved" means.
+ * Goal predicates for levels. Boolean predicates over World.
  */
 
-import type { GoalFn, Stage, World } from './types';
-import { listRuns } from './world';
+import type { GoalFn, Run, Stage, World } from './types';
+import { listRuns, searchRuns } from './world';
 
-/** True when an experiment with this name exists. */
 export function hasExperiment(name: string): GoalFn {
   return (w) => w.experiments.some((e) => e.name === name);
 }
 
-/** True when the active experiment is `name`. */
-export function activeExperimentIs(name: string): GoalFn {
-  return (w) =>
-    w.activeExperimentId != null &&
-    w.experiments.some((e) => e.id === w.activeExperimentId && e.name === name);
-}
-
-/** At least `n` runs exist (optionally in a named experiment). */
-export function minRuns(n: number, experimentName?: string): GoalFn {
+export function experimentHasTag(
+  name: string,
+  key: string,
+  value?: string,
+): GoalFn {
   return (w) => {
-    const exp = experimentName
-      ? w.experiments.find((e) => e.name === experimentName)
-      : null;
-    if (experimentName && !exp) return false;
-    return listRuns(w, exp?.id).length >= n;
+    const e = w.experiments.find((x) => x.name === name);
+    if (!e || !(key in e.tags)) return false;
+    return value === undefined || e.tags[key] === value;
   };
 }
 
-/** Some run has param `key` equal to `value` (or any value if omitted). */
+export function activeExperimentIs(name: string): GoalFn {
+  return (w) =>
+    w.activeExperimentId != null &&
+    w.experiments.some(
+      (e) => e.id === w.activeExperimentId && e.name === name,
+    );
+}
+
+export function minRuns(n: number, experimentName?: string): GoalFn {
+  return (w) => listRuns(w, findExpId(w, experimentName)).length >= n;
+}
+
+export function someRun(pred: (r: Run, w: World) => boolean, experimentName?: string): GoalFn {
+  return (w) => listRuns(w, findExpId(w, experimentName)).some((r) => pred(r, w));
+}
+
 export function runHasParam(
   key: string,
   value?: string,
   experimentName?: string,
 ): GoalFn {
-  return (w) =>
-    listRuns(w, findExpId(w, experimentName)).some((r) => {
-      if (!(key in r.params)) return false;
-      return value === undefined || r.params[key] === value;
-    });
+  return someRun((r) => {
+    if (!(key in r.params)) return false;
+    return value === undefined || r.params[key] === value;
+  }, experimentName);
 }
 
-/** Some run has metric `key` at least `min` (or equal if `equals` set). */
 export function runHasMetric(
   key: string,
   opts: { min?: number; max?: number; equals?: number } = {},
   experimentName?: string,
 ): GoalFn {
-  return (w) =>
-    listRuns(w, findExpId(w, experimentName)).some((r) => {
-      if (!(key in r.metrics)) return false;
-      const v = r.metrics[key];
-      if (opts.equals !== undefined) return v === opts.equals;
-      if (opts.min !== undefined && v < opts.min) return false;
-      if (opts.max !== undefined && v > opts.max) return false;
-      return true;
-    });
+  return someRun((r) => {
+    if (!(key in r.metrics)) return false;
+    const v = r.metrics[key];
+    if (opts.equals !== undefined) return v === opts.equals;
+    if (opts.min !== undefined && v < opts.min) return false;
+    if (opts.max !== undefined && v > opts.max) return false;
+    return true;
+  }, experimentName);
+}
+
+/** Metric key has at least `n` logged steps (epoch-style series). */
+export function runHasMetricSteps(
+  key: string,
+  minSteps: number,
+  experimentName?: string,
+): GoalFn {
+  return someRun((r) => (r.metricHistory[key]?.length ?? 0) >= minSteps, experimentName);
 }
 
 export function runHasTag(
@@ -67,21 +77,93 @@ export function runHasTag(
   value?: string,
   experimentName?: string,
 ): GoalFn {
-  return (w) =>
-    listRuns(w, findExpId(w, experimentName)).some((r) => {
-      if (!(key in r.tags)) return false;
-      return value === undefined || r.tags[key] === value;
-    });
+  return someRun((r) => {
+    if (!(key in r.tags)) return false;
+    return value === undefined || r.tags[key] === value;
+  }, experimentName);
 }
 
-export function runHasArtifact(name: string, experimentName?: string): GoalFn {
+export function runHasArtifact(
+  name: string,
+  experimentName?: string,
+  kind?: 'file' | 'model' | 'dir',
+): GoalFn {
+  return someRun(
+    (r) =>
+      r.artifacts.some(
+        (a) => a.path === name && (kind === undefined || a.kind === kind),
+      ),
+    experimentName,
+  );
+}
+
+export function runHasSource(experimentName?: string): GoalFn {
+  return someRun((r) => Boolean(r.source.git || r.source.entry), experimentName);
+}
+
+export function runHasEnv(experimentName?: string): GoalFn {
+  return someRun((r) => Boolean(r.env.python || r.env.mlflow), experimentName);
+}
+
+export function runHasDataset(name: string, experimentName?: string): GoalFn {
+  return someRun((r) => r.datasets.some((d) => d.name === name), experimentName);
+}
+
+export function runHasEval(
+  name: string,
+  minValue?: number,
+  experimentName?: string,
+): GoalFn {
+  return someRun((r) => {
+    const e = r.evalResults.find((x) => x.name === name);
+    if (!e) return false;
+    return minValue === undefined || e.value >= minValue;
+  }, experimentName);
+}
+
+export function runHasPrompt(experimentName?: string): GoalFn {
+  return someRun((r) => r.prompts.length > 0, experimentName);
+}
+
+export function runHasTrace(
+  kind?: Run['traces'][number]['kind'],
+  experimentName?: string,
+): GoalFn {
+  return someRun(
+    (r) =>
+      r.traces.some((t) => kind === undefined || t.kind === kind),
+    experimentName,
+  );
+}
+
+export function runHasChild(experimentName?: string): GoalFn {
+  return someRun((r) => r.parentId != null, experimentName);
+}
+
+export function runAutologged(experimentName?: string): GoalFn {
+  return someRun((r) => r.autologged, experimentName);
+}
+
+export function autologEnabled(flavor?: string): GoalFn {
   return (w) =>
-    listRuns(w, findExpId(w, experimentName)).some((r) =>
-      r.artifacts.includes(name),
+    w.autologFlavor != null &&
+    (flavor === undefined || w.autologFlavor === flavor);
+}
+
+export function searchMatches(
+  filter: string,
+  minCount = 1,
+  experimentName?: string,
+): GoalFn {
+  return (w) => {
+    const expId = findExpId(w, experimentName);
+    const found = searchRuns(w, filter).filter((r) =>
+      expId ? r.experimentId === expId : true,
     );
+    return found.length >= minCount;
+  };
 }
 
-/** A registered model exists with at least `n` versions. */
 export function modelExists(name: string, minVersions = 1): GoalFn {
   return (w) => {
     const m = w.models[name];
@@ -89,7 +171,6 @@ export function modelExists(name: string, minVersions = 1): GoalFn {
   };
 }
 
-/** Model version is in a given stage. */
 export function modelVersionInStage(
   name: string,
   version: number,
@@ -103,7 +184,6 @@ export function modelVersionInStage(
   };
 }
 
-/** At least one version of the model is in `stage`. */
 export function modelHasStage(name: string, stage: Stage): GoalFn {
   return (w) => {
     const m = w.models[name];
@@ -111,12 +191,72 @@ export function modelHasStage(name: string, stage: Stage): GoalFn {
   };
 }
 
-/** All listed goals must hold. */
+export function modelHasFlavor(
+  name: string,
+  flavor: string,
+  experimentName?: string,
+): GoalFn {
+  void experimentName;
+  return (w) => {
+    const m = w.models[name];
+    return !!m && m.versions.some((v) => v.flavor === flavor);
+  };
+}
+
+export function modelHasSignature(name: string, experimentName?: string): GoalFn {
+  void experimentName;
+  return (w) => {
+    const m = w.models[name];
+    return !!m && m.versions.some((v) => v.signature != null && v.signature !== '');
+  };
+}
+
+export function modelHasAlias(
+  name: string,
+  alias: string,
+  version?: number,
+): GoalFn {
+  return (w) => {
+    const m = w.models[name];
+    if (!m) return false;
+    return m.versions.some(
+      (v) =>
+        v.aliases.includes(alias) &&
+        (version === undefined || v.version === version),
+    );
+  };
+}
+
+export function modelVersionDescribed(name: string, version: number): GoalFn {
+  return (w) => {
+    const m = w.models[name];
+    const v = m?.versions.find((x) => x.version === version);
+    return Boolean(v && v.description && v.description.length > 3);
+  };
+}
+
+export function modelLoaded(name?: string): GoalFn {
+  return (w) =>
+    w.loadedModelUri != null &&
+    (name === undefined || w.loadedModelName === name);
+}
+
+export function predictionsLogged(minCount = 1): GoalFn {
+  return (w) => w.lastPredictions.length >= minCount;
+}
+
+export function serverRunning(): GoalFn {
+  return (w) => Boolean(w.served?.ready);
+}
+
+export function serverServedPredictions(minCount = 1): GoalFn {
+  return (w) => (w.served?.predictions ?? 0) >= minCount;
+}
+
 export function all(...goals: GoalFn[]): GoalFn {
   return (w) => goals.every((g) => g(w));
 }
 
-/** At least one goal holds. */
 export function any(...goals: GoalFn[]): GoalFn {
   return (w) => goals.some((g) => g(w));
 }

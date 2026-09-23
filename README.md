@@ -53,6 +53,21 @@ mlflow models archive -n <name> --version <n>
 
 Chain commands with `;` (golf counts each segment).
 
+## Curriculum
+
+Eight sequences — foundations through serving and GenAI:
+
+| Sequence | What you learn |
+|----------|----------------|
+| Introduction | Experiments, runs, params, metrics, tags, artifacts, comparison |
+| Deep Tracking | Metric steps, nested runs, source/env, search, experiment tags |
+| Artifacts, Data & Evaluation | Artifact store, datasets, `mlflow.evaluate`, promotion gates |
+| Model Registry | Register, stages, versions, retirement |
+| Registry Production | Flavors, signatures, aliases, load URIs |
+| Models & Serving | Load, predict, serve HTTP, invoke, rollback drill |
+| Autolog & Ops | autolog, reproducibility pack, scoped enablement |
+| GenAI Tracking | Prompts, traces, LLM evaluation |
+
 ## Architecture
 
 ```text

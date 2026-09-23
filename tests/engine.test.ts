@@ -95,7 +95,10 @@ describe('command parser', () => {
     assert.equal(w.runs[id].params.lr, '0.01');
     assert.equal(w.runs[id].metrics.acc, 0.95);
     assert.equal(w.runs[id].tags.stage, 'train');
-    assert.deepEqual(w.runs[id].artifacts, ['model.pkl']);
+    assert.deepEqual(
+      w.runs[id]!.artifacts.map((a) => a.path),
+      ['model.pkl'],
+    );
   });
 
   it('registers a model and transitions stages', () => {

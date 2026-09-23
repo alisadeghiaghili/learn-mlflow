@@ -12,10 +12,31 @@ import { cloneWorld } from '../src/engine/world';
 
 function applySolution(start: World, solutionCommand: string): World {
   let w = cloneWorld(start);
-  for (const segment of solutionCommand
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean)) {
+  // Split on `;` but keep quoted segments intact.
+  const segments: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  for (const ch of solutionCommand) {
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === ';') {
+      if (current.trim()) segments.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) segments.push(current.trim());
+
+  for (const segment of segments) {
     const result = executeCommand(segment, w);
     assert.equal(result.ok, true, 'solution segment failed: ' + segment);
     if (result.ok) w = result.world;
