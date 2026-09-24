@@ -687,14 +687,41 @@ function execModels(world: World, action: string, args: string[]): CommandResult
     ]);
   }
   if (action === 'invoke') {
-    if (!world.served?.ready) return fail(world, 'Server is not running.');
+    if (!world.served?.ready) return fail(world, 'Server is not running.', 'no-model');
+    const payload = flagValue(args, '--json') ?? flagValue(args, '--content-type');
+    if (payload && world.loadedModelName) {
+      const model = world.models[world.loadedModelName];
+      const ver = model?.versions.find((v) => v.version === world.loadedModelVersion);
+      if (ver && !ver.signature) {
+        return fail(
+          world,
+          '400 Bad Request: payload rejected — model has no signature',
+          'no-signature',
+        );
+      }
+    }
     return ok(servePredict(world, 1), [
       '200 OK',
+      'Content-Type: application/json',
       'prediction recorded on ' + world.served.modelUri,
     ]);
   }
   if (action === 'stop-serve') {
     return ok(stopServe(world), ['Server stopped.']);
+  }
+  if (action === 'docker-build' || action === 'build-image') {
+    const name = flagValue(args, '-n', '--name');
+    const flavor = flagValue(args, '--flavor') ?? 'sklearn';
+    if (!name) return fail(world, 'Usage: mlflow models docker-build -n <name>', 'no-arg');
+    return ok(world, [
+      '=== mlflow models build-docker -n ' + name + ' (simulated) ===',
+      'FROM python:3.11-slim',
+      'COPY model/ /opt/ml/model',
+      'RUN pip install mlflow==2.14.0 ' + flavor,
+      'EXPOSE 8080',
+      'CMD ["mlflow", "models", "serve", "-m", "/opt/ml/model", "-h", "0.0.0.0", "-p", "8080"]',
+      'Image tagged: ' + name + ':latest',
+    ]);
   }
   if (action === 'approve' || action === 'reject') {
     const name = flagValue(args, '-n', '--name');
@@ -727,7 +754,12 @@ function execAutolog(world: World, action: string): CommandResult {
   if (action === 'off') {
     return ok(setAutolog(world, null), ['autolog disabled']);
   }
-  if (!action) return fail(world, 'Usage: mlflow autolog <sklearn|pytorch|off>');
+  if (action === 'openai' || action === 'pytorch' || action === 'sklearn' || action === 'transformers') {
+    return ok(setAutolog(world, action), [
+      'autolog enabled for ' + action + ' — new runs will record params, metrics, model',
+    ]);
+  }
+  if (!action) return fail(world, 'Usage: mlflow autolog <sklearn|pytorch|openai|off>', 'no-arg');
   return ok(setAutolog(world, action), [
     'autolog enabled for ' + action + ' — new runs will record params, metrics, model',
   ]);
@@ -856,7 +888,37 @@ export function executeCommand(raw: string, world: World): CommandResult {
         'rmse=2.5',
       ]);
     }
-    if (group === 'datasets') return execDatasets(world, action, args);
+    if (group === 'recipes') {
+    // Lightweight Recipes pipeline teaching: prepare → train → evaluate
+    const stage = action || 'run';
+    if (!world.activeExperimentId) {
+      return fail(world, 'No active experiment', 'no-experiment');
+    }
+    const created = createRun(world, world.activeExperimentId, 'recipe-' + stage);
+    let w = created.world;
+    w = logParam(w, created.run.id, 'recipe.stage', stage);
+    w = logTag(w, created.run.id, 'mlflow.pipeline', 'recipe');
+    w = logDataset(w, created.run.id, 'recipe-data', 'csv');
+    if (stage === 'run' || stage === 'train') {
+      w = logParam(w, created.run.id, 'estimator', 'sklearn.ensemble');
+      w = logMetric(w, created.run.id, 'training_score', 0.9, 0);
+    }
+    if (stage === 'run' || stage === 'evaluate') {
+      w = logEval(w, created.run.id, 'rmse', 1.8);
+      w = logEval(w, created.run.id, 'r2_score', 0.81);
+      w = logArtifact(w, created.run.id, 'model', 'model', 'sklearn');
+    }
+    if (stage === 'run' || stage === 'prepare') {
+      w = logArtifact(w, created.run.id, 'transformed.csv', 'file');
+    }
+    w = finishRun(w, created.run.id, 'FINISHED');
+    return ok(w, [
+      '=== mlflow recipes ' + stage + ' (simulated) ===',
+      'Recipe stages: prepare -> train -> evaluate',
+      'Run ' + created.run.id + ' recorded as pipeline step',
+    ]);
+  }
+  if (group === 'datasets') return execDatasets(world, action, args);
     if (group === 'genai') {
       if (action === 'score') {
         const name = flagValue(args, '--name') ?? 'score';

@@ -3,6 +3,11 @@
  */
 
 import type { Level, ModalStep, Sequence } from '../engine/types';
+import {
+  solutionToPythonScript,
+  solutionToShellScript,
+} from '../engine/exportScript';
+import { copySharePayload } from './share';
 
 export function closeModal(): void {
   document.querySelectorAll('.modal-backdrop').forEach((n) => n.remove());
@@ -234,8 +239,8 @@ export function showHint(level: Level): void {
 
 export function showSolution(level: Level): void {
   const par = level.solutionCommand.split(';').filter((s) => s.trim()).length;
-  mount(
-    'Solution',
+  const body = document.createElement('div');
+  body.append(
     renderMarkdown([
       'Par is **' + String(par) + '** commands.',
       '',
@@ -243,8 +248,41 @@ export function showSolution(level: Level): void {
       level.solutionCommand,
       '```',
     ]),
-    actionsBar(btn('Close', closeModal, true)),
   );
+
+  const exportBox = document.createElement('div');
+  exportBox.className = 'demo-box';
+  const exportTitle = document.createElement('p');
+  exportTitle.textContent = 'Export as real MLflow';
+  exportBox.append(exportTitle);
+  const py = solutionToPythonScript(level.solutionCommand);
+  const sh = solutionToShellScript(level.solutionCommand);
+  const pre = document.createElement('pre');
+  pre.textContent = py;
+  exportBox.append(pre);
+  const row = document.createElement('div');
+  row.className = 'share-row';
+  const copyPy = document.createElement('button');
+  copyPy.type = 'button';
+  copyPy.textContent = 'Copy Python';
+  copyPy.onclick = () => void copySharePayload(py);
+  const copySh = document.createElement('button');
+  copySh.type = 'button';
+  copySh.textContent = 'Copy shell script';
+  copySh.onclick = () => void copySharePayload(sh);
+  row.append(copyPy, copySh);
+  exportBox.append(row);
+  body.append(exportBox);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'primary';
+  close.textContent = 'Close';
+  close.onclick = closeModal;
+  actions.append(close);
+  mount('Solution', body, actions);
 }
 
 export function showHelp(): void {

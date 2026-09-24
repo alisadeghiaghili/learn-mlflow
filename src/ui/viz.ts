@@ -80,6 +80,36 @@ function renderGoalPanel(steps: string[], allDone: boolean): HTMLElement {
   return panel;
 }
 
+function chartLarge(points: { step: number; value: number }[]): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'metric-chart-svg');
+  svg.setAttribute('viewBox', '0 0 220 56');
+  svg.setAttribute('aria-hidden', 'true');
+  if (points.length < 2) return svg;
+  const xs = points.map((p) => p.step);
+  const ys = points.map((p) => p.value);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const coords = points
+    .map((p) => {
+      const x = ((p.step - minX) / spanX) * 200 + 10;
+      const y = 48 - ((p.value - minY) / spanY) * 40;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    })
+    .join(' ');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  path.setAttribute('points', coords);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#2DD4BF');
+  path.setAttribute('stroke-width', '2');
+  svg.append(path);
+  return svg;
+}
+
 function sparkline(points: { step: number; value: number }[]): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('class', 'sparkline');
@@ -217,7 +247,19 @@ function renderTracking(world: World, opts: VizOpts): HTMLElement {
         if (series && series.length >= 2) {
           const wrap = el('span', 'spark-wrap');
           wrap.append(sparkline(series));
+          wrap.title =
+            k +
+            ' @ ' +
+            series.map((p) => p.step + ':' + p.value).join(' → ');
           badges.append(wrap);
+          if (k === 'loss' || k === 'acc' || k === 'rmse' || k === 'train_loss') {
+            const chartBox = el('div', 'metric-chart');
+            chartBox.append(
+              el('div', 'par-note', k + ' history'),
+              chartLarge(series),
+            );
+            card.append(chartBox);
+          }
         }
       }
       for (const [k, v] of Object.entries(run.tags)) {

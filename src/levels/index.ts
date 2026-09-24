@@ -13,6 +13,7 @@ import { modelsDeployLevels } from './modelsDeploy';
 import { trainOpsLevels } from './trainOps';
 import { projectLevels } from './projects';
 import { capstoneLevels } from './capstone';
+import { gapLevels } from './gaps';
 import { genaiLevels } from './genai';
 
 export const levels: Level[] = [
@@ -26,6 +27,7 @@ export const levels: Level[] = [
   ...projectLevels,
   ...genaiLevels,
   ...capstoneLevels,
+  ...gapLevels,
 ];
 
 export { sequences };

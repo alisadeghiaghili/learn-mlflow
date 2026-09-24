@@ -69,7 +69,14 @@ Eight sequences plus fidelity/capstone packs:
 | GenAI Tracking | Prompts, traces, scorers, LLM evaluation |
 | Capstones | Release runbook end-to-end |
 
-Also taught: fluent Python API (`mlflow.start_run`, `log_metric`, …), `MlflowClient`, explain-why errors, metric sparklines, comparison tables.
+Also taught: fluent Python API (`mlflow.start_run`, `log_metric`, …), `MlflowClient`, explain-why errors, metric sparklines/history charts, comparison tables, payload contracts, docker packaging, OpenAI autolog, Recipes stages, and **export of any level solution as real Python or a shell script** for a live MLflow server.
+
+## Fidelity ceiling (read this)
+
+This app is a **high-fidelity simulator**: the vocabulary, commands, state machine, and runbooks match MLflow Tracking / Registry / Models / Evaluate / GenAI patterns. It does **not** execute a real `mlflow` binary or store artifacts on a tracking server.
+
+- **9–10 / 10** here means you can reason about, operate, and debug MLflow workflows (and export runnable scripts).
+- **10 / 10 “I know MLflow in production”** additionally requires a real tracking server, artifact store, and at least one end-to-end deploy — use the exported scripts against `mlflow server` to finish that mile.
 
 ## Architecture
 

@@ -1055,3 +1055,18 @@ button.ghost {
 .compare-table td.mono {
   color: var(--ink);
 }
+
+.metric-chart {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.metric-chart-svg {
+  width: 100%;
+  max-width: 240px;
+  height: 56px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}

@@ -4,5 +4,6 @@ export * from './errors';
 export * from './world';
 export * from './commands';
 export * from './fluent';
+export * from './exportScript';
 export * from './history';
 export * from './goals';
