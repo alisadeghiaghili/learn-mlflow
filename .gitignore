@@ -3,3 +3,9 @@ dist/
 .DS_Store
 *.local
 .vite/
+lab/.venv/
+lab/_libs/
+lab/mlruns/
+mlruns/
+__pycache__/
+*.pyc

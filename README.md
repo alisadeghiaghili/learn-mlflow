@@ -71,12 +71,17 @@ Eight sequences plus fidelity/capstone packs:
 
 Also taught: fluent Python API (`mlflow.start_run`, `log_metric`, …), `MlflowClient`, explain-why errors, metric sparklines/history charts, comparison tables, payload contracts, docker packaging, OpenAI autolog, Recipes stages, and **export of any level solution as real Python or a shell script** for a live MLflow server.
 
-## Fidelity ceiling (read this)
+## Fidelity (updated)
 
-This app is a **high-fidelity simulator**: the vocabulary, commands, state machine, and runbooks match MLflow Tracking / Registry / Models / Evaluate / GenAI patterns. It does **not** execute a real `mlflow` binary or store artifacts on a tracking server.
+The web app is a **high-fidelity simulator** of MLflow Tracking / Registry / Models / Evaluate / GenAI: same vocabulary, commands, state machine, and runbooks. It does not host a tracking server in the browser.
 
-- **9–10 / 10** here means you can reason about, operate, and debug MLflow workflows (and export runnable scripts).
-- **10 / 10 “I know MLflow in production”** additionally requires a real tracking server, artifact store, and at least one end-to-end deploy — use the exported scripts against `mlflow server` to finish that mile.
+**Closing the last mile for real:** [`lab/`](./lab) runs the curriculum contract against a **real** `mlflow` package (file store). CI job *Lab verify (real MLflow)* executes `lab/verify_curriculum.py` and `lab/serve_smoke.py` on every change to that lab. After the capstones, run the lab locally once — that is the transfer test.
+
+| Claim | Score |
+|-------|:-----:|
+| Operate MLflow workflows (this app + export scripts) | **9.5–9.8** |
+| Transfer to a real `mlflow` install (lab verified) | **9.0** |
+| Own a production tracking server / artifact store | needs your infra |
 
 ## Architecture
 

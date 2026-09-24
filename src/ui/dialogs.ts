@@ -253,7 +253,8 @@ export function showSolution(level: Level): void {
   const exportBox = document.createElement('div');
   exportBox.className = 'demo-box';
   const exportTitle = document.createElement('p');
-  exportTitle.textContent = 'Export as real MLflow';
+  exportTitle.textContent =
+    'Export as real MLflow — run against a live install (see lab/)';
   exportBox.append(exportTitle);
   const py = solutionToPythonScript(level.solutionCommand);
   const sh = solutionToShellScript(level.solutionCommand);

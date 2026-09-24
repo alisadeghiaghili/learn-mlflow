@@ -1,0 +1,5 @@
+# Optional local scoring smoke (no Docker required).
+mlflow>=2.14.0,<3
+scikit-learn>=1.4
+pandas>=2.0
+numpy>=1.26
