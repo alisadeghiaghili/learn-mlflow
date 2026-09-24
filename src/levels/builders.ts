@@ -87,7 +87,14 @@ export function withRegisteredModel(
     w = logParam(w, created.run.id, 'model', 'sklearn.ensemble');
     w = logMetric(w, created.run.id, 'acc', 0.8 + i * 0.05);
     w = logArtifact(w, created.run.id, 'model.pkl', 'model');
-    const reg = registerModel(w, name, created.run.id, '', 'sklearn');
+    const reg = registerModel(
+      w,
+      name,
+      created.run.id,
+      '',
+      'sklearn',
+      'Tensor<double>-1',
+    );
     w = reg.world;
     if (i === versionCount - 1) {
       const t = transitionStage(w, name, reg.version.version, stage);

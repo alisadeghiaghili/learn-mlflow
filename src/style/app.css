@@ -1005,3 +1005,53 @@ button.ghost {
     animation: none;
   }
 }
+
+/* Sparklines + compare */
+.viz-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sparkline {
+  width: 64px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.spark-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.badge.sys {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.compare-panel {
+  overflow-x: auto;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.compare-table th,
+.compare-table td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.compare-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.compare-table td.mono {
+  color: var(--ink);
+}

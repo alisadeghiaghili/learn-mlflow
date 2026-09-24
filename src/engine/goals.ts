@@ -235,6 +235,41 @@ export function modelVersionDescribed(name: string, version: number): GoalFn {
   };
 }
 
+export function modelVersionApproval(
+  name: string,
+  version: number,
+  approval: 'approved' | 'rejected' | 'pending',
+): GoalFn {
+  return (w) => {
+    const m = w.models[name];
+    const v = m?.versions.find((x) => x.version === version);
+    return Boolean(v && v.approval === approval);
+  };
+}
+
+export function runHasSystemMetrics(experimentName?: string): GoalFn {
+  return someRun((r) => Object.keys(r.systemMetrics).length > 0, experimentName);
+}
+
+export function predictionsOK(minCount = 1): GoalFn {
+  return (w) => w.lastPredictions.length >= minCount;
+}
+
+export function compareTagged(minCount = 2, experimentName?: string): GoalFn {
+  return (w) =>
+    listRuns(w, findExpId(w, experimentName)).filter(
+      (r) => r.tags.compare === 'yes',
+    ).length >= minCount;
+}
+
+export function evalHas(name: string, minValue?: number): GoalFn {
+  return someRun((r) => {
+    const e = r.evalResults.find((x) => x.name === name);
+    if (!e) return false;
+    return minValue === undefined || e.value >= minValue;
+  });
+}
+
 export function modelLoaded(name?: string): GoalFn {
   return (w) =>
     w.loadedModelUri != null &&

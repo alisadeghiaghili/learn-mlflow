@@ -66,6 +66,8 @@ export interface Run {
   traces: TraceSpan[];
   source: { git: string | null; entry: string | null; version: string | null };
   env: { python: string | null; mlflow: string | null };
+  /** Lightweight system metrics snapshot (ops teaching). */
+  systemMetrics: Record<string, number>;
   autologged: boolean;
   startedAt: number;
   endedAt: number | null;
@@ -89,6 +91,8 @@ export interface ModelVersion {
   signature: string | null;
   aliases: string[];
   runUri: string;
+  /** Release checklist status for teaching approval workflows. */
+  approval: 'pending' | 'approved' | 'rejected';
 }
 
 export interface RegisteredModel {
@@ -121,11 +125,13 @@ export interface World {
   nextRunId: number;
   clock: number;
   lastPredictions: number[];
+  /** Milliseconds of last predict — used for latency teaching. */
+  lastPredictLatencyMs: number | null;
 }
 
 export type CommandResult =
   | { ok: true; lines: string[]; world: World }
-  | { ok: false; error: string; world: World };
+  | { ok: false; error: string; why?: string; world: World };
 
 export type GoalFn = (world: World) => boolean;
 

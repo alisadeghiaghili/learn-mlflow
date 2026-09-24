@@ -32,6 +32,7 @@ export function createEmptyWorld(): World {
     nextRunId: 1,
     clock: 1_700_000_000_000,
     lastPredictions: [],
+    lastPredictLatencyMs: null,
   };
 }
 
@@ -67,6 +68,7 @@ export function cloneWorld(world: World): World {
           traces: r.traces.map((t) => ({ ...t })),
           source: { ...r.source },
           env: { ...r.env },
+          systemMetrics: { ...r.systemMetrics },
         },
       ]),
     ),
@@ -91,6 +93,7 @@ export function cloneWorld(world: World): World {
     nextRunId: world.nextRunId,
     clock: world.clock,
     lastPredictions: [...world.lastPredictions],
+    lastPredictLatencyMs: world.lastPredictLatencyMs,
   };
 }
 
@@ -181,6 +184,7 @@ export function createRun(
     traces: [],
     source: { git: null, entry: null, version: null },
     env: { python: null, mlflow: null },
+    systemMetrics: {},
     autologged: false,
     startedAt: next.clock,
     endedAt: null,
@@ -397,6 +401,7 @@ export function registerModel(
     signature,
     aliases: [],
     runUri: `runs:/${runId}/model`,
+    approval: 'pending',
   };
   next.clock += 1000;
   model.versions.push(version);
@@ -478,6 +483,31 @@ export function loadModel(
   return { world: next, uri, version: ver };
 }
 
+export function setApproval(
+  world: World,
+  name: string,
+  version: number,
+  approval: 'approved' | 'rejected',
+): { world: World; version: ModelVersion } | null {
+  const next = cloneWorld(world);
+  const model = next.models[name];
+  if (!model) return null;
+  const ver = model.versions.find((v) => v.version === version);
+  if (!ver) return null;
+  ver.approval = approval;
+  return { world: next, version: ver };
+}
+
+export function logSystemMetrics(world: World, runId: string): World {
+  const next = cloneWorld(world);
+  const run = next.runs[runId];
+  if (!run) return world;
+  run.systemMetrics['system.cpu'] = 0.42;
+  run.systemMetrics['system.memory'] = 0.61;
+  run.systemMetrics['system.disk'] = 0.33;
+  return next;
+}
+
 export function predict(
   world: World,
   rows: number,
@@ -489,6 +519,7 @@ export function predict(
     values.push(Number(((i * 0.17 + 0.3) % 1).toFixed(3)));
   }
   next.lastPredictions = values;
+  next.lastPredictLatencyMs = 8 + rows * 2;
   return { world: next, values };
 }
 

@@ -218,6 +218,7 @@ export function createGame(root: HTMLElement): GameShell {
       if (!result.ok) {
         history = popHistory(history)?.history ?? history;
         terminal.log('err', result.error);
+        if (result.why) terminal.log('meta', 'why: ' + result.why);
         terminal.focus();
         continue;
       }
@@ -281,6 +282,7 @@ export function createGame(root: HTMLElement): GameShell {
             for (const out of result.lines) terminal.log('out', out);
           } else {
             terminal.log('err', result.error);
+            if (result.why) terminal.log('meta', 'why: ' + result.why);
           }
         }
         renderAll();

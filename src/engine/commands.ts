@@ -33,6 +33,7 @@ import {
   logMetric,
   logParam,
   logPrompt,
+  logSystemMetrics,
   logTag,
   logTrace,
   markAutologged,
@@ -45,15 +46,18 @@ import {
   setActiveExperiment,
   setActiveParent,
   setAlias,
+  setApproval,
   setAutolog,
   setSource,
   stopServe,
   tagExperiment,
   transitionStage,
 } from './world';
+import { tryFluent } from './fluent';
+import { explain } from './errors';
 
-function fail(world: World, error: string): CommandResult {
-  return { ok: false, error, world };
+function fail(world: World, error: string, code = 'unknown-fluent'): CommandResult {
+  return { ok: false, error, why: explain(code), world };
 }
 
 function ok(world: World, lines: string[] = []): CommandResult {
@@ -269,6 +273,7 @@ function execRuns(world: World, action: string, args: string[]): CommandResult {
       w = logMetric(w, created.run.id, 'train_loss', 0.42, 0);
       w = logMetric(w, created.run.id, 'train_loss', 0.28, 1);
       w = logMetric(w, created.run.id, 'train_loss', 0.18, 2);
+      w = logSystemMetrics(w, created.run.id);
       w = logArtifact(w, created.run.id, 'model.pkl', 'model', flavor);
     }
     w = setSource(
@@ -646,11 +651,26 @@ function execModels(world: World, action: string, args: string[]): CommandResult
   }
   if (action === 'predict') {
     const rows = Number(flagValue(args, '--rows') ?? '3');
+    if (!world.loadedModelUri) {
+      return fail(world, 'No model loaded. Use `mlflow models load` first.', 'no-model');
+    }
+    const model = world.loadedModelName
+      ? world.models[world.loadedModelName]
+      : undefined;
+    const ver = model?.versions.find((v) => v.version === world.loadedModelVersion);
+    if (ver && !ver.signature) {
+      return fail(
+        world,
+        'Refusing to predict: model has no signature',
+        'no-signature',
+      );
+    }
     const result = predict(world, rows);
-    if (!result) return fail(world, 'No model loaded. Use `mlflow models load` first.');
+    if (!result) return fail(world, 'Predict failed', 'no-model');
     return ok(result.world, [
       'Predictions (' + String(result.values.length) + ' rows):',
       '  [' + result.values.join(', ') + ']',
+      '  latency=' + String(world.lastPredictLatencyMs ?? 12) + 'ms (est.)',
     ]);
   }
   if (action === 'serve') {
@@ -676,7 +696,31 @@ function execModels(world: World, action: string, args: string[]): CommandResult
   if (action === 'stop-serve') {
     return ok(stopServe(world), ['Server stopped.']);
   }
-  return fail(world, 'Unknown models action');
+  if (action === 'approve' || action === 'reject') {
+    const name = flagValue(args, '-n', '--name');
+    const version = Number(flagValue(args, '--version') ?? '0');
+    if (!name || !version) {
+      return fail(
+        world,
+        'Usage: mlflow models approve|reject -n <name> --version <n>',
+        'no-arg',
+      );
+    }
+    const result = setApproval(
+      world,
+      name,
+      version,
+      action === 'approve' ? 'approved' : 'rejected',
+    );
+    if (!result) return fail(world, 'Version not found', 'missing-version');
+    return ok(result.world, [
+      (action === 'approve' ? 'Approved ' : 'Rejected ') +
+        name +
+        ' v' +
+        String(version),
+    ]);
+  }
+  return fail(world, 'Unknown models action', 'unknown-fluent');
 }
 
 function execAutolog(world: World, action: string): CommandResult {
@@ -746,6 +790,9 @@ export function executeCommand(raw: string, world: World): CommandResult {
   if (lower === 'help' || lower === '?') return ok(world, helpLines());
   if (lower === 'clear' || lower === 'cls') return ok(world, [TOK_CLEAR]);
 
+  const fluent = tryFluent(line, world);
+  if (fluent) return fluent;
+
   const tokens = tokenize(line);
   if (!tokens.length) return ok(world);
 
@@ -768,10 +815,61 @@ export function executeCommand(raw: string, world: World): CommandResult {
     if (group === 'artifacts') return execArtifacts(world, action, args);
     if (group === 'models') return execModels(world, action, args);
     if (group === 'autolog') return execAutolog(world, action);
-    if (group === 'evaluate') return execEvaluate(world, rest.slice(1));
+    if (group === 'evaluate') {
+      const builtin = flagValue(rest.slice(1), '--builtin');
+      if (builtin === 'classification') {
+        const run = activeRunOr(world);
+        if (!run) return fail(world, 'No active run', 'no-run');
+        let w = logEval(world, run.id, 'precision', 0.91);
+        w = logEval(w, run.id, 'recall', 0.88);
+        w = logEval(w, run.id, 'f1_score', 0.89);
+        return ok(w, [
+          'mlflow.evaluate(classification) wrote precision/recall/f1_score',
+          'precision=0.91  recall=0.88  f1_score=0.89',
+        ]);
+      }
+      return execEvaluate(world, rest.slice(1));
+    }
+    if (group === 'run') {
+      const entry =
+        rest.find((a) => !a.startsWith('-') && a.includes('.')) ?? 'MLproject';
+      let pLr = flagValue(rest, '-P') ?? rest.find((a) => a.startsWith('lr='))?.slice(3);
+      if (pLr && pLr.includes('=')) pLr = pLr.slice(pLr.indexOf('=') + 1);
+      if (!world.activeExperimentId) {
+        return fail(world, 'No active experiment', 'no-experiment');
+      }
+      const created = createRun(world, world.activeExperimentId, 'mlflow-run');
+      let w = setSource(
+        created.world,
+        created.run.id,
+        { git: 'proj0001', entry },
+        { python: '3.11.8', mlflow: '2.14.0' },
+      );
+      w = logParam(w, created.run.id, 'entry', entry);
+      if (pLr) w = logParam(w, created.run.id, 'lr', pLr);
+      w = logMetric(w, created.run.id, 'rmse', 2.5);
+      w = finishRun(w, created.run.id, 'FINISHED');
+      return ok(w, [
+        '=== mlflow run (simulated) ===',
+        'Run ' + created.run.id + ' from entry ' + entry,
+        pLr ? 'param lr=' + pLr : 'params: defaults',
+        'rmse=2.5',
+      ]);
+    }
     if (group === 'datasets') return execDatasets(world, action, args);
-    if (group === 'genai') return execGenai(world, action, args);
-    return fail(world, 'Unknown group `' + rest[0] + '`');
+    if (group === 'genai') {
+      if (action === 'score') {
+        const name = flagValue(args, '--name') ?? 'score';
+        const value = Number(flagValue(args, '--value') ?? '0');
+        const run = activeRunOr(world);
+        if (!run) return fail(world, 'No active run', 'no-run');
+        return ok(logEval(world, run.id, name, value), [
+          'Scorer ' + name + '=' + String(value),
+        ]);
+      }
+      return execGenai(world, action, args);
+    }
+    return fail(world, 'Unknown group `' + rest[0] + '`', 'unknown-fluent');
   }
 
   // Python-flavored teaching shortcuts used in dialogs

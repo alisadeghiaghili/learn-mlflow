@@ -55,18 +55,21 @@ Chain commands with `;` (golf counts each segment).
 
 ## Curriculum
 
-Eight sequences — foundations through serving and GenAI:
+Eight sequences plus fidelity/capstone packs:
 
 | Sequence | What you learn |
 |----------|----------------|
 | Introduction | Experiments, runs, params, metrics, tags, artifacts, comparison |
-| Deep Tracking | Metric steps, nested runs, source/env, search, experiment tags |
-| Artifacts, Data & Evaluation | Artifact store, datasets, `mlflow.evaluate`, promotion gates |
+| Deep Tracking | Metric steps, nested runs, source/env, search, experiment tags, compare table |
+| Artifacts, Data & Evaluation | Artifact store, datasets, `mlflow.evaluate`, builtin classification, promotion gates |
 | Model Registry | Register, stages, versions, retirement |
-| Registry Production | Flavors, signatures, aliases, load URIs |
-| Models & Serving | Load, predict, serve HTTP, invoke, rollback drill |
-| Autolog & Ops | autolog, reproducibility pack, scoped enablement |
-| GenAI Tracking | Prompts, traces, LLM evaluation |
+| Registry Production | Flavors, signatures, aliases, load URIs, approval gate |
+| Models & Serving | Load, predict (signature-gated), serve HTTP, invoke, rollback drill |
+| Autolog & Ops | autolog, system metrics, fluent vs client, `mlflow run` projects |
+| GenAI Tracking | Prompts, traces, scorers, LLM evaluation |
+| Capstones | Release runbook end-to-end |
+
+Also taught: fluent Python API (`mlflow.start_run`, `log_metric`, …), `MlflowClient`, explain-why errors, metric sparklines, comparison tables.
 
 ## Architecture
 
