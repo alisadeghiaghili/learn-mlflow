@@ -26,7 +26,7 @@ export const sequences: Sequence[] = [
   {
     id: 'registry',
     displayName: 'Model Registry',
-    about: 'Register, stages, versions, retirement',
+    about: 'Aliases first (@champion), then legacy stages',
     tab: 'registry',
   },
   {

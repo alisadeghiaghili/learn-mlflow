@@ -1,5 +1,6 @@
 /**
- * Registry sequence — Model Registry stages with deeper teaching notes.
+ * Registry sequence — legacy stage workflow (MLflow < 2.9 style).
+ * Prefer aliases (`aliases.ts`); stages kept because they appear in older stacks.
  */
 
 import type { Level } from '../engine/types';
@@ -100,6 +101,8 @@ export const registryLevels: Level[] = [
           '```',
           'mlflow models transition -n iris-clf --version 1 --stage Staging',
           '```',
+          '',
+          '**Legacy note:** stages are deprecated in MLflow ≥ 2.9. Learn them because older codebases use them — new designs should use aliases (`@champion`).',
           '',
           '`Staging` means: *candidate for release, not yet trusted by users*. Integration tests, shadow traffic, fairness checks live here. The stage label is how a team of five agrees on status without a Slack thread.',
           '',

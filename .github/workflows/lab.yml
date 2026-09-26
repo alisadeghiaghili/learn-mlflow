@@ -30,3 +30,5 @@ jobs:
         run: python verify_curriculum.py
       - name: Models smoke
         run: python serve_smoke.py
+      - name: Scenario suite
+        run: python suite_scenarios.py

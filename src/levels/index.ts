@@ -7,27 +7,33 @@ import { sequences } from './sequences';
 import { introLevels } from './intro';
 import { trackingDeepLevels } from './trackingDeep';
 import { artifactsDataLevels } from './artifactsData';
+import { aliasLevels } from './aliases';
 import { registryLevels } from './registry';
 import { registryDeepLevels } from './registryDeep';
 import { modelsDeployLevels } from './modelsDeploy';
+import { servingDepthLevels } from './servingDepth';
 import { trainOpsLevels } from './trainOps';
 import { projectLevels } from './projects';
 import { capstoneLevels } from './capstone';
 import { gapLevels } from './gaps';
+import { assessExtraLevels } from './assessExtra';
 import { genaiLevels } from './genai';
 
 export const levels: Level[] = [
   ...introLevels,
   ...trackingDeepLevels,
   ...artifactsDataLevels,
+  ...aliasLevels,
   ...registryLevels,
   ...registryDeepLevels,
   ...modelsDeployLevels,
+  ...servingDepthLevels,
   ...trainOpsLevels,
   ...projectLevels,
   ...genaiLevels,
   ...capstoneLevels,
   ...gapLevels,
+  ...assessExtraLevels,
 ];
 
 export { sequences };

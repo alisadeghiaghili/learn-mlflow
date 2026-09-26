@@ -73,14 +73,14 @@ Also taught: fluent Python API (`mlflow.start_run`, `log_metric`, …), `MlflowC
 
 ## Fidelity (updated)
 
-The web app is a **high-fidelity simulator** of MLflow Tracking / Registry / Models / Evaluate / GenAI: same vocabulary, commands, state machine, and runbooks. It does not host a tracking server in the browser.
+The web app is a **high-fidelity simulator** of MLflow Tracking / Registry / Models / Evaluate / GenAI: same vocabulary, commands, state machine, and runbooks. Registry teaching is **alias-first** (`@champion` / `@challenger`); stage transitions remain as **legacy** (deprecated in MLflow ≥ 2.9).
 
-**Closing the last mile for real:** [`lab/`](./lab) runs the curriculum contract against a **real** `mlflow` package (file store). CI job *Lab verify (real MLflow)* executes `lab/verify_curriculum.py` and `lab/serve_smoke.py` on every change to that lab. After the capstones, run the lab locally once — that is the transfer test.
+**Closing the last mile for real:** [`lab/`](./lab) runs the curriculum contract against a **real** `mlflow` package (file store), including a scenario suite (alias rollback, regression `evaluate`, unsigned-model gate, `search_runs` filter). CI job *Lab verify (real MLflow)* executes all three lab entry points.
 
 | Claim | Score |
 |-------|:-----:|
-| Operate MLflow workflows (this app + export scripts) | **9.5–9.8** |
-| Transfer to a real `mlflow` install (lab verified) | **9.0** |
+| Operate MLflow workflows (this app + export scripts) | **9.5** |
+| Transfer to a real `mlflow` install (lab + scenarios verified) | **9.0** |
 | Own a production tracking server / artifact store | needs your infra |
 
 ## Architecture

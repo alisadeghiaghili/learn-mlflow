@@ -145,24 +145,28 @@ function helpLines(): string[] {
     '  mlflow artifacts list [--run <id>]',
     '  mlflow datasets log <name> [--type csv|pq|sql]',
     '',
-    'Models',
+    'Model Registry (aliases first — stages are legacy)',
     '  mlflow models register -n <name> [--run <id>] [--flavor <f>] [--signature <s>]',
+    '  mlflow models alias -n <name> --alias champion --version <n>',
+    '  mlflow models load -n <name> @champion',
     '  mlflow models list | get <name> | describe -n <name> --version <n> --text <t>',
-    '  mlflow models transition -n <name> --version <n> --stage <S>',
-    '  mlflow models archive -n <name> --version <n>',
-    '  mlflow models alias -n <name> --alias <a> --version <n>',
-    '  mlflow models load -n <name> (--stage <S> | --version <n> | @alias)',
+    '  mlflow models approve|reject -n <name> --version <n>',
+    '  mlflow models transition -n <name> --version <n> --stage <S>   # legacy',
+    '  mlflow models archive -n <name> --version <n>                 # legacy',
     '  mlflow models predict --rows <n>',
-    '  mlflow models serve -n <name> --port <p> [--stage <S>]',
-    '  mlflow models invoke --json "..." | stop-serve',
+    '  mlflow models serve -n <name> --port <p> [--stage <S>] [--json]',
+    '  mlflow models invoke --json "..." | docker-build | stop-serve',
     '',
     'Training helpers',
-    '  mlflow autolog <sklearn|pytorch|off>',
-    '  mlflow evaluate --metric <name> --value <v> [--higher-better true|false]',
+    '  mlflow autolog <sklearn|pytorch|openai|off>',
+    '  mlflow evaluate --metric <name> --value <v> | --builtin classification',
+    '  mlflow recipes run | train | evaluate | prepare',
+    '  mlflow run . -P key=value',
     '',
     'GenAI',
     '  mlflow genai log-prompt "<text>"',
-    '  mlflow genai log-trace --name <n> --kind LLM|CHAIN|TOOL|RETRIEVER [--status OK|ERROR]',
+    '  mlflow genai log-trace --name <n> --kind LLM|CHAIN|TOOL|RETRIEVER',
+    '  mlflow genai score --name <s> --value <v>',
     '',
     'Game',
     '  levels  hint  solution  undo  reset  sandbox  clear  help',
@@ -677,8 +681,10 @@ function execModels(world: World, action: string, args: string[]): CommandResult
     const name = flagValue(args, '-n', '--name');
     const port = Number(flagValue(args, '--port') ?? '5001');
     const stage = flagValue(args, '--stage') ?? 'Production';
+    const alias = flagValue(args, '--alias');
     if (!name) return fail(world, 'Usage: mlflow models serve -n <name> --port <p>');
-    const loaded = loadModel(world, name, isStage(stage) ? stage : 'Production');
+    const ref = alias ?? (isStage(stage) ? stage : 'Production');
+    const loaded = loadModel(world, name, ref);
     if (!loaded) return fail(world, "Cannot resolve model '" + name + "'");
     const served = serveModel(loaded.world, loaded.uri, port);
     return ok(served, [
